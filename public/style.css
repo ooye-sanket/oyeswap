@@ -1,0 +1,13 @@
+* { box-sizing: border-box; }
+body { font-family: system-ui, Arial, sans-serif; margin: 0; padding: 20px; background: #fafafa; color: #111; }
+h1 { margin-bottom: 16px; }
+main { max-width: 900px; margin: 0 auto; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.box { background: #fff; border: 1px solid #e5e5e5; border-radius: 12px; padding: 16px; }
+label { display: block; margin: 6px 0; }
+input, select, button { padding: 8px; margin: 6px 0; width: 100%; }
+ul { list-style: none; padding-left: 0; }
+li { padding: 6px 0; border-bottom: 1px dashed #eee; }
+button { cursor: pointer; border: 1px solid #ddd; border-radius: 8px; background: #f6f6f6; }
+button:hover { background: #efefef; }
+@media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Simple File Transfer</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main>
+    <h1>Simple File Transfer</h1>
+
+    <section class="box">
+      <label>Device name</label>
+      <input id="deviceName" placeholder="e.g. My Phone" />
+      <button id="registerBtn">Set Name</button>
+    </section>
+
+    <section class="grid">
+      <div class="box">
+        <h2>Send</h2>
+        <input type="file" id="fileInput" />
+        <div>
+          <label>Send to device:</label>
+          <select id="deviceSelect"></select>
+        </div>
+        <button id="sendBtn">Upload & Notify</button>
+        <p id="sendMsg"></p>
+      </div>
+
+      <div class="box">
+        <h2>Receive</h2>
+        <button id="refreshBtn">Refresh Files</button>
+        <ul id="fileList"></ul>
+        <p id="incomingMsg"></p>
+      </div>
+    </section>
+
+    <section class="box">
+      <h2>Connected Devices</h2>
+      <ul id="devices"></ul>
+    </section>
+  </main>
+
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script src="/script.js"></script>
+</body>
+</html>
