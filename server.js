@@ -1,129 +1,159 @@
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
 import express from "express";
 import cors from "cors";
 import multer from "multer";
-import mime from "mime-types";
 import http from "http";
 import { Server as SocketServer } from "socket.io";
 import dotenv from "dotenv";
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 const app = express();
 const server = http.createServer(app);
-const io = new SocketServer(server, {
-  cors: { origin: "*" }
-});
+const io = new SocketServer(server, { cors: { origin: "*" } });
 
 app.use(cors());
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static("public"));
 
-const uploadsDir = path.join(__dirname, "uploads");
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
+// Multer memory storage
+const upload = multer({ storage: multer.memoryStorage() });
 
-// Multer storage
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadsDir),
-  filename: (req, file, cb) => {
-    // keep original name; prepend timestamp for uniqueness
-    const safe = file.originalname.replace(/[^\w.\-()\[\] ]/g, "_");
-    cb(null, `${Date.now()}_${safe}`);
-  }
-});
-const upload = multer({ storage });
-
-// In-memory devices (socket.id -> {name})
+// Track connected devices
+// devices: socketId -> { name, clientId }
 const devices = new Map();
 
-io.on("connection", (socket) => {
-  // client sends { name: "Sanket's Phone" }
-  socket.on("register", (payload) => {
-    const name = (payload?.name || "Unknown").slice(0, 40);
-    devices.set(socket.id, { name });
-    io.emit("devices", getDeviceList());
-  });
+// Map clientId -> socketId (only for currently connected sockets)
+function clientIdToSocketId(clientId) {
+  for (const [socketId, info] of devices.entries()) {
+    if (info.clientId === clientId) return socketId;
+  }
+  return null;
+}
 
-  // “send to device” notification (informational)
-  socket.on("send-intent", ({ toSocketId, fileName }) => {
-    if (io.sockets.sockets.get(toSocketId)) {
-      io.to(toSocketId).emit("incoming-file", {
-        from: devices.get(socket.id)?.name || "Unknown",
-        fileName
-      });
+// Pending queue for offline devices (keyed by clientId)
+// pendingQueue: clientId -> [ { fileName, fileType, fileBufferBase64, from } ]
+const pendingQueue = new Map();
+
+io.on("connection", (socket) => {
+  console.log("Connected:", socket.id);
+
+  socket.on("register", ({ name, clientId }) => {
+    // Save device info
+    devices.set(socket.id, { name: name || "Unknown", clientId: clientId || null });
+    io.emit("devices", getDevices());
+
+    // If there are queued files for this clientId, deliver now
+    if (clientId) {
+      const queued = pendingQueue.get(clientId);
+      if (queued && queued.length > 0) {
+        console.log(`Delivering ${queued.length} queued file(s) to clientId=${clientId} (socket=${socket.id})`);
+        queued.forEach((item) => {
+          io.to(socket.id).emit("file-transfer", {
+            fileName: item.fileName,
+            fileType: item.fileType,
+            fileData: item.fileBufferBase64,
+            from: item.from
+          });
+        });
+        pendingQueue.delete(clientId);
+      }
     }
   });
 
   socket.on("disconnect", () => {
     devices.delete(socket.id);
-    io.emit("devices", getDeviceList());
+    io.emit("devices", getDevices());
   });
 });
 
-function getDeviceList() {
-  return [...devices.entries()].map(([id, v]) => ({ socketId: id, name: v.name }));
+// Helper: list of devices shown to clients
+// We'll include clientId for stable mapping
+function getDevices() {
+  return [...devices.entries()].map(([socketId, data]) => ({
+    socketId,
+    clientId: data.clientId,
+    name: data.name
+  }));
 }
 
-// Routes
-app.get("/health", (_, res) => res.json({ ok: true }));
+/* ------------------------------------------------------
+   Upload endpoint
+   Accepts multiple files (upload.array("file"))
+   Expects req.body.toClientId (preferred) or toSocketId (legacy)
+------------------------------------------------------- */
+app.post("/upload", upload.array("file"), (req, res) => {
+  const files = req.files;
+  const toClientId = req.body.toClientId || null;
+  const toSocketIdFallback = req.body.toSocketId || null;
+  const fromName = req.body.fromName || "Unknown";
 
-// Upload to server (optionally include toSocketId for notify)
-app.post("/upload", upload.single("file"), (req, res) => {
-  const file = req.file;
-  if (!file) return res.status(400).json({ error: "No file" });
-
-  const toSocketId = req.body?.toSocketId;
-  if (toSocketId && io.sockets.sockets.get(toSocketId)) {
-    io.to(toSocketId).emit("incoming-file", {
-      from: req.body?.fromName || "Unknown",
-      fileName: file.filename
-    });
+  if (!files || files.length === 0) {
+    return res.status(400).json({ error: "No file uploaded" });
   }
-  res.json({
-    message: "Uploaded",
-    storedAs: file.filename,
-    originalName: file.originalname,
-    size: file.size
+
+  // Determine target: prefer clientId
+  let targetSocketId = null;
+  let targetClientId = null;
+
+  if (toClientId) {
+    targetClientId = toClientId;
+    targetSocketId = clientIdToSocketId(toClientId);
+  } else if (toSocketIdFallback) {
+    targetSocketId = toSocketIdFallback;
+    const info = devices.get(toSocketIdFallback);
+    targetClientId = info?.clientId || null;
+  } else {
+    return res.status(400).json({ error: "Receiver not selected" });
+  }
+
+  // Prepare per-file results
+  const results = [];
+
+  if (targetSocketId) {
+    // Target currently connected -> deliver immediately
+    files.forEach((file) => {
+      io.to(targetSocketId).emit("file-transfer", {
+        fileName: file.originalname,
+        fileType: file.mimetype,
+        fileData: file.buffer.toString("base64"),
+        from: fromName
+      });
+      results.push({ name: file.originalname, status: "sent" });
+    });
+  } else {
+    // Target offline -> queue under clientId (needs to exist)
+    if (!targetClientId) {
+      return res.status(400).json({ error: "Target not available currently" });
+    }
+   
+    
+
+
+    const queue = pendingQueue.get(targetClientId) || [];
+    files.forEach((file) => {
+      queue.push({
+        fileName: file.originalname,
+
+        fileType: file.mimetype,
+
+        fileBufferBase64: file.buffer.toString("base64"),
+
+        from: fromName
+
+      });
+      results.push({ name: file.originalname, status: "queued" });
+    });
+    pendingQueue.set(targetClientId, queue);
+  }
+
+  return res.json({
+    message: "ok",
+    toClientId: targetClientId,
+    delivered: results
   });
 });
 
-// List files
-app.get("/files", (_, res) => {
-  const list = fs.readdirSync(uploadsDir).map((f) => {
-    const p = path.join(uploadsDir, f);
-    const stat = fs.statSync(p);
-    return {
-      name: f,
-      size: stat.size,
-      createdAt: stat.ctime
-    };
-  }).sort((a,b)=> b.createdAt - a.createdAt);
-  res.json(list);
-});
+// Health check
+app.get("/health", (_, res) => res.json({ ok: true }));
 
-// Download a file by name
-app.get("/download/:name", (req, res) => {
-  const filePath = path.join(uploadsDir, path.basename(req.params.name));
-  if (!fs.existsSync(filePath)) return res.status(404).send("Not found");
-  const mt = mime.lookup(filePath) || "application/octet-stream";
-  res.setHeader("Content-Type", mt);
-  res.download(filePath);
-});
-
-// Optional: delete file
-app.delete("/files/:name", (req, res) => {
-  const filePath = path.join(uploadsDir, path.basename(req.params.name));
-  if (!fs.existsSync(filePath)) return res.status(404).send("Not found");
-  fs.unlinkSync(filePath);
-  res.json({ message: "Deleted" });
-});
-
-// Serve app
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Server on http://localhost:${PORT}`);
-});
+server.listen(PORT, () => console.log(`🚀 Server running at http://0.0.0.0:${PORT}`));

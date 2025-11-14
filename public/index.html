@@ -3,47 +3,75 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Simple File Transfer</title>
-  <link rel="manifest" href="/manifest.json">
+  <title>OyeSwap – File Transfer</title>
+
   <link rel="stylesheet" href="/style.css" />
 </head>
+
 <body>
+
+  <!-- Top Bar -->
+  <header class="topbar">
+    <div style="display:flex; align-items:center; gap:8px;">
+      <div id="myDeviceName" class="device-name">Set your device name</div>
+      <button id="editNameBtn" class="edit-btn">✏️</button>
+    </div>
+    <button id="themeToggle" class="theme-btn">🌙</button>
+  </header>
+
+  <!-- Instructions -->
+  <section class="info-box">
+    To transfer files, open OyeSwap on both devices connected to the same WiFi.
+  </section>
+
   <main>
-    <h1>Simple File Transfer</h1>
 
-    <section class="box">
-      <label>Device name</label>
-      <input id="deviceName" placeholder="e.g. My Phone" />
-      <button id="registerBtn">Set Name</button>
-    </section>
+    <!-- SEND SECTION -->
+    <section class="card">
+      <h2>Send Files</h2>
 
-    <section class="grid">
-      <div class="box">
-        <h2>Send</h2>
-        <input type="file" id="fileInput" />
-        <div>
-          <label>Send to device:</label>
-          <select id="deviceSelect"></select>
-        </div>
-        <button id="sendBtn">Upload & Notify</button>
-        <p id="sendMsg"></p>
+      <!-- Drag drop zone -->
+      <div id="dropZone" class="drop-zone">
+        Drag & drop files here or click to browse
       </div>
 
-      <div class="box">
-        <h2>Receive</h2>
-        <button id="refreshBtn">Refresh Files</button>
-        <ul id="fileList"></ul>
-        <p id="incomingMsg"></p>
+      <input type="file" id="fileInput" multiple webkitdirectory directory class="hidden" />
+
+
+
+
+      <!-- File preview -->
+      <div id="filePreview" class="file-preview hidden"></div>
+
+      <label>Select devices:</label>
+      <div id="deviceCheckboxList" class="device-check-list"></div>
+
+      <button id="sendBtn" disabled>Send</button>
+      <p id="sendMsg"></p>
+    </section>
+
+    <!-- RECEIVE SECTION -->
+    <section class="card">
+      <h2>Receive</h2>
+      <div id="receiveBox" class="receive-box">
+        Waiting for incoming files...
       </div>
     </section>
 
-    <section class="box">
+    <!-- CONNECTED DEVICES -->
+    <section class="card">
       <h2>Connected Devices</h2>
-      <ul id="devices"></ul>
+      <div id="devices" class="device-list"></div>
     </section>
+
   </main>
 
+  <!-- POPUP -->
+  <div id="popup" class="popup hidden"></div>
+
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
+
   <script src="/script.js"></script>
 </body>
 </html>
