@@ -1,9 +1,7 @@
-// script.js (public)
-// 🚀 OPTIMIZED for faster large file transfers
-// =======================================
+
 
 const socket = io({
-  transports: ['websocket', 'polling'], // Prefer websocket
+  transports: ['websocket', 'polling'], 
   upgrade: true,
   reconnection: true,
   reconnectionDelay: 1000,
