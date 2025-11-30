@@ -1,6 +1,6 @@
 {
-  "name": "Simple File Transfer",
-  "short_name": "oyeswap",
+  "name": "oyeswap",
+  "short_name": "OYSP",
   "start_url": "/",
   "display": "standalone",
   "icons": [

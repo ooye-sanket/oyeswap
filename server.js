@@ -184,7 +184,7 @@ function getDevices() {
 
 function streamFileToSocket(socketId, fileName, fileType, fromName, buffer) {
   let bytesSent = 0;
-  const CHUNK_SIZE = 512 * 1024; // 512KB chunks for speed
+  const CHUNK_SIZE = 512 * 1024; 
   const totalSize = buffer.length;
 
   io.to(socketId).emit("file-start", {
