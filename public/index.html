@@ -6,11 +6,19 @@
   <title>OyeSwap – File Transfer</title>
 
   <link rel="stylesheet" href="/style.css" />
+  <style>
+    /* minimal progress UI styles (you can move to style.css) */
+    .receive-box { min-height: 80px; padding:10px; }
+    .receive-card { background:#fff; padding:8px; margin:8px 0; border-radius:6px; box-shadow:0 1px 3px rgba(0,0,0,.06); }
+    .progress { background:#eee; height:10px; border-radius:6px; overflow:hidden; margin-top: 5px; }
+    .progress-bar { height:10px; width:0%; background:#4caf50; transition: width 0.2s; }
+    .hidden { display:none; }
+    .button-group { display: flex; gap: 10px; margin-top: 10px; }
+    .button-group button { flex: 1; padding: 10px; cursor: pointer; }
+  </style>
 </head>
 
 <body>
-
-  <!-- Top Bar -->
   <header class="topbar">
     <div style="display:flex; align-items:center; gap:8px;">
       <div id="myDeviceName" class="device-name">Set your device name</div>
@@ -19,28 +27,38 @@
     <button id="themeToggle" class="theme-btn">🌙</button>
   </header>
 
-  <!-- Instructions -->
   <section class="info-box">
-    To transfer files, open OyeSwap on both devices connected to the same WiFi.
+    To transfer files, open OyeSwap on both devices connected to the same Wi-Fi or local network.
+    <br><small>Maximum file size: 10GB</small>
   </section>
 
   <main>
-
-    <!-- SEND SECTION -->
     <section class="card">
       <h2>Send Files</h2>
 
-      <!-- Drag drop zone -->
-      <div id="dropZone" class="drop-zone">
-        Drag & drop files here or click to browse
+      <div id="dropZone" class="drop-zone">Drag & drop files or folders here</div>
+
+      <div class="button-group">
+        <button onclick="document.getElementById('fileInputFiles').click()">📄 Select Files</button>
+        <button onclick="document.getElementById('fileInputFolders').click()">📁 Select Folder</button>
       </div>
 
-      <input type="file" id="fileInput" multiple webkitdirectory directory class="hidden" />
+      <!-- File input -->
+      <input 
+        type="file" 
+        id="fileInputFiles" 
+        multiple 
+        class="hidden" 
+      />
 
+      <!-- Folder input -->
+      <input 
+        type="file" 
+        id="fileInputFolders" 
+        webkitdirectory 
+        class="hidden" 
+      />
 
-
-
-      <!-- File preview -->
       <div id="filePreview" class="file-preview hidden"></div>
 
       <label>Select devices:</label>
@@ -50,28 +68,24 @@
       <p id="sendMsg"></p>
     </section>
 
-    <!-- RECEIVE SECTION -->
     <section class="card">
       <h2>Receive</h2>
       <div id="receiveBox" class="receive-box">
         Waiting for incoming files...
+        <div id="progressArea"></div>
       </div>
     </section>
 
-    <!-- CONNECTED DEVICES -->
     <section class="card">
       <h2>Connected Devices</h2>
       <div id="devices" class="device-list"></div>
     </section>
-
   </main>
 
-  <!-- POPUP -->
   <div id="popup" class="popup hidden"></div>
 
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
-
   <script src="/script.js"></script>
 </body>
 </html>

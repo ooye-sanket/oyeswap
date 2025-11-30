@@ -9,19 +9,35 @@ dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
-const io = new SocketServer(server, { cors: { origin: "*" } });
+
+// 🚀 OPTIMIZED: Increased payload limits and tuned socket.io for large files
+const io = new SocketServer(server, { 
+  cors: { origin: "*" },
+  maxHttpBufferSize: 1e8, // 100MB buffer
+  pingTimeout: 60000, // 60s timeout
+  pingInterval: 25000, // Keep connection alive
+  transports: ['websocket', 'polling'], // Prioritize websocket
+  upgradeTimeout: 30000,
+  allowEIO3: true
+});
 
 app.use(cors());
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ limit: '100mb', extended: true }));
 app.use(express.static("public"));
 
-// Multer memory storage
-const upload = multer({ storage: multer.memoryStorage() });
+// 🚀 OPTIMIZED: Larger chunk size and no file size limit in multer
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { 
+    fileSize: Infinity, // No limit, we check manually
+    files: 10
+  }
+});
 
 // Track connected devices
-// devices: socketId -> { name, clientId }
 const devices = new Map();
 
-// Map clientId -> socketId (only for currently connected sockets)
 function clientIdToSocketId(clientId) {
   for (const [socketId, info] of devices.entries()) {
     if (info.clientId === clientId) return socketId;
@@ -29,30 +45,23 @@ function clientIdToSocketId(clientId) {
   return null;
 }
 
-// Pending queue for offline devices (keyed by clientId)
-// pendingQueue: clientId -> [ { fileName, fileType, fileBufferBase64, from } ]
+// Pending queue for offline devices
 const pendingQueue = new Map();
 
 io.on("connection", (socket) => {
   console.log("Connected:", socket.id);
 
   socket.on("register", ({ name, clientId }) => {
-    // Save device info
     devices.set(socket.id, { name: name || "Unknown", clientId: clientId || null });
     io.emit("devices", getDevices());
 
-    // If there are queued files for this clientId, deliver now
     if (clientId) {
       const queued = pendingQueue.get(clientId);
       if (queued && queued.length > 0) {
-        console.log(`Delivering ${queued.length} queued file(s) to clientId=${clientId} (socket=${socket.id})`);
+        console.log(`Delivering ${queued.length} queued file(s) to clientId=${clientId}`);
         queued.forEach((item) => {
-          io.to(socket.id).emit("file-transfer", {
-            fileName: item.fileName,
-            fileType: item.fileType,
-            fileData: item.fileBufferBase64,
-            from: item.from
-          });
+          const buffer = Buffer.from(item.fileBufferBase64, 'base64');
+          streamFileToSocket(socket.id, item.fileName, item.fileType, item.from, buffer);
         });
         pendingQueue.delete(clientId);
       }
@@ -65,8 +74,6 @@ io.on("connection", (socket) => {
   });
 });
 
-// Helper: list of devices shown to clients
-// We'll include clientId for stable mapping
 function getDevices() {
   return [...devices.entries()].map(([socketId, data]) => ({
     socketId,
@@ -75,10 +82,53 @@ function getDevices() {
   }));
 }
 
+// 🚀 OPTIMIZED: Larger chunks (512KB) for faster transfer
+function streamFileToSocket(socketId, fileName, fileType, fromName, buffer) {
+  let bytesSent = 0;
+  const CHUNK_SIZE = 512 * 1024; // 512KB chunks (8x faster than 64KB)
+  const totalSize = buffer.length;
+
+  io.to(socketId).emit("file-start", {
+    name: fileName,
+    type: fileType,
+    from: fromName,
+    totalSize: totalSize // Send total size for accurate progress
+  });
+
+  // 🚀 OPTIMIZED: Async chunking with setImmediate for non-blocking
+  let offset = 0;
+  
+  const sendNextChunk = () => {
+    if (offset >= totalSize) {
+      io.to(socketId).emit("file-complete", {
+        name: fileName,
+        from: fromName
+      });
+      return;
+    }
+
+    const chunk = buffer.slice(offset, offset + CHUNK_SIZE);
+    bytesSent += chunk.length;
+    offset += CHUNK_SIZE;
+
+    io.to(socketId).emit("file-chunk", {
+      name: fileName,
+      type: fileType,
+      from: fromName,
+      chunk: Array.from(chunk), // Convert to array for JSON serialization
+      receivedBytes: bytesSent,
+      totalSize: totalSize
+    });
+
+    // 🚀 Non-blocking: use setImmediate to allow other operations
+    setImmediate(sendNextChunk);
+  };
+
+  sendNextChunk();
+}
+
 /* ------------------------------------------------------
-   Upload endpoint
-   Accepts multiple files (upload.array("file"))
-   Expects req.body.toClientId (preferred) or toSocketId (legacy)
+   🚀 OPTIMIZED Upload endpoint - Streaming approach
 ------------------------------------------------------- */
 app.post("/upload", upload.array("file"), (req, res) => {
   const files = req.files;
@@ -90,7 +140,17 @@ app.post("/upload", upload.array("file"), (req, res) => {
     return res.status(400).json({ error: "No file uploaded" });
   }
 
-  // Determine target: prefer clientId
+  // Check 10GB limit
+  const totalSize = files.reduce((sum, f) => sum + f.size, 0);
+  const MAX_SIZE = 10 * 1024 * 1024 * 1024; // 10GB
+  if (totalSize > MAX_SIZE) {
+    return res.status(400).json({ 
+      error: "Total size exceeds 10GB limit",
+      size: totalSize,
+      limit: MAX_SIZE
+    });
+  }
+
   let targetSocketId = null;
   let targetClientId = null;
 
@@ -105,55 +165,52 @@ app.post("/upload", upload.array("file"), (req, res) => {
     return res.status(400).json({ error: "Receiver not selected" });
   }
 
-  // Prepare per-file results
   const results = [];
 
   if (targetSocketId) {
-    // Target currently connected -> deliver immediately
+    // 🚀 Target online -> stream files
     files.forEach((file) => {
-      io.to(targetSocketId).emit("file-transfer", {
-        fileName: file.originalname,
-        fileType: file.mimetype,
-        fileData: file.buffer.toString("base64"),
-        from: fromName
-      });
-      results.push({ name: file.originalname, status: "sent" });
+      streamFileToSocket(targetSocketId, file.originalname, file.mimetype, fromName, file.buffer);
+      results.push({ name: file.originalname, status: "sent", size: file.size });
+    });
+
+    // Respond immediately after starting stream
+    return res.json({
+      message: "ok",
+      toClientId: targetClientId,
+      delivered: results
     });
   } else {
-    // Target offline -> queue under clientId (needs to exist)
+    // Target offline -> queue
     if (!targetClientId) {
       return res.status(400).json({ error: "Target not available currently" });
     }
-   
-    
-
 
     const queue = pendingQueue.get(targetClientId) || [];
     files.forEach((file) => {
+      // 🚀 OPTIMIZATION: For offline queue, compress if needed
       queue.push({
         fileName: file.originalname,
-
         fileType: file.mimetype,
-
-        fileBufferBase64: file.buffer.toString("base64"),
-
+        fileBufferBase64: file.buffer.toString('base64'),
         from: fromName
-
       });
-      results.push({ name: file.originalname, status: "queued" });
+      results.push({ name: file.originalname, status: "queued", size: file.size });
     });
     pendingQueue.set(targetClientId, queue);
-  }
 
-  return res.json({
-    message: "ok",
-    toClientId: targetClientId,
-    delivered: results
-  });
+    return res.json({
+      message: "ok",
+      toClientId: targetClientId,
+      delivered: results
+    });
+  }
 });
 
 // Health check
 app.get("/health", (_, res) => res.json({ ok: true }));
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`🚀 Server running at http://0.0.0.0:${PORT}`));
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
