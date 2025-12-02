@@ -198,3 +198,56 @@ button:disabled {
 .hidden {
   display: none;
 }
+
+/* GRID LAYOUT (65% LEFT, 35% RIGHT) */
+.layout {
+  display: grid;
+  grid-template-columns: 65% 35%;
+  gap: 18px;
+  max-width: 1300px;
+  margin: auto;
+}
+
+.left-column {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* Right side blank space */
+.blank-space {
+  background: var(--card);
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  min-height: 600px;
+  opacity: 0.25;   /* light ghost area */
+}
+
+/* MOBILE → stack everything */
+@media (max-width: 768px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .blank-space {
+    display: none;
+  }
+}
+
+
+
+
+/* Right side: Receive + Connected Devices stacked */
+.right-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  width: 100%;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .inner-grid {
+    grid-template-columns: 1fr;
+  }
+}

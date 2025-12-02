@@ -32,8 +32,15 @@
     <br><small>Maximum file size: 10GB</small>
   </section>
 
-  <main>
-    <section class="card">
+<main class="layout">
+
+  <!-- LEFT COLUMN → 65% -->
+<section class="left-column">
+
+  <div class="inner-grid">
+
+    <!-- SEND FILES (LEFT SIDE) -->
+    <section class="card send-section">
       <h2>Send Files</h2>
 
       <div id="dropZone" class="drop-zone">Drag & drop files or folders here</div>
@@ -43,21 +50,8 @@
         <button onclick="document.getElementById('fileInputFolders').click()">📁 Select Folder</button>
       </div>
 
-      <!-- File input -->
-      <input 
-        type="file" 
-        id="fileInputFiles" 
-        multiple 
-        class="hidden" 
-      />
-
-      <!-- Folder input -->
-      <input 
-        type="file" 
-        id="fileInputFolders" 
-        webkitdirectory 
-        class="hidden" 
-      />
+      <input type="file" id="fileInputFiles" multiple class="hidden" />
+      <input type="file" id="fileInputFolders" webkitdirectory class="hidden" />
 
       <div id="filePreview" class="file-preview hidden"></div>
 
@@ -68,19 +62,35 @@
       <p id="sendMsg"></p>
     </section>
 
-    <section class="card">
-      <h2>Receive</h2>
-      <div id="receiveBox" class="receive-box">
-        Waiting for incoming files...
-        <div id="progressArea"></div>
-      </div>
-    </section>
+    <!-- RIGHT SIDE (RECEIVE + CONNECTED DEVICES) -->
+    <div class="right-stack">
 
-    <section class="card">
-      <h2>Connected Devices</h2>
-      <div id="devices" class="device-list"></div>
-    </section>
-  </main>
+      <section class="card">
+        <h2>Receive</h2>
+        <div id="receiveBox" class="receive-box">
+          Waiting for incoming files...
+          <div id="progressArea"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Connected Devices</h2>
+        <div id="devices" class="device-list"></div>
+      </section>
+
+    </div>
+
+  </div>
+
+</section>
+
+
+  <!-- RIGHT → 35% BLANK SPACE -->
+  <section class="right-column blank-space"></section>
+
+</main>
+
+
 
   <div id="popup" class="popup hidden"></div>
 
