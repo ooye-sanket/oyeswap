@@ -1,9 +1,38 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>OyeSwap – File Transfer</title>
+    <!-- Web App Manifest -->
+    <link rel="manifest" href="/media/site.webmanifest" />
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/media/favicon.svg" />
+    <link rel="icon" type="image/x-icon" href="/media/favicon.ico" />
+
+    <!-- Apple Touch Icon -->
+    <link rel="apple-touch-icon" href="/media/apple-touch-icon.png" />
+
+    <!-- iOS Meta Tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <meta name="apple-mobile-web-app-title" content="OyeSwap" />
+
+    <!-- Theme Color -->
+    <meta name="theme-color" content="#4CAF50" />
+
+    <!-- Service Worker Registration -->
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker
+            .register("/service-worker.js")
+            .then(() => console.log("✅ Service Worker registered"))
+            .catch((err) => console.log("❌ Registration failed:", err));
+        });
+      }
+    </script>
 
   <link rel="stylesheet" href="/style.css" />
   <style>
