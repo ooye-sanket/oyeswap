@@ -22,9 +22,9 @@
   <header class="topbar">
     <div style="display:flex; align-items:center; gap:8px;">
       <div id="myDeviceName" class="device-name">Set your device name</div>
-      <button id="editNameBtn" class="edit-btn">✏️</button>
+      <button id="editNameBtn" class="edit-btn"></button>
     </div>
-    <button id="themeToggle" class="theme-btn">🌙</button>
+    <button id="themeToggle" class="theme-btn"></button>
   </header>
 
   <section class="info-box">
@@ -32,8 +32,15 @@
     <br><small>Maximum file size: 10GB</small>
   </section>
 
-  <main>
-    <section class="card">
+<main class="layout">
+
+  <!-- LEFT COLUMN → 65% -->
+<section class="left-column">
+
+  <div class="inner-grid">
+
+    <!-- SEND FILES (LEFT SIDE) -->
+    <section class="card send-section">
       <h2>Send Files</h2>
 
       <div id="dropZone" class="drop-zone">Drag & drop files or folders here</div>
@@ -43,21 +50,8 @@
         <button onclick="document.getElementById('fileInputFolders').click()">📁 Select Folder</button>
       </div>
 
-      <!-- File input -->
-      <input 
-        type="file" 
-        id="fileInputFiles" 
-        multiple 
-        class="hidden" 
-      />
-
-      <!-- Folder input -->
-      <input 
-        type="file" 
-        id="fileInputFolders" 
-        webkitdirectory 
-        class="hidden" 
-      />
+      <input type="file" id="fileInputFiles" multiple class="hidden" />
+      <input type="file" id="fileInputFolders" webkitdirectory class="hidden" />
 
       <div id="filePreview" class="file-preview hidden"></div>
 
@@ -66,24 +60,97 @@
 
       <button id="sendBtn" disabled>Send</button>
       <p id="sendMsg"></p>
+      
     </section>
 
-    <section class="card">
-      <h2>Receive</h2>
-      <div id="receiveBox" class="receive-box">
-        Waiting for incoming files...
-        <div id="progressArea"></div>
+    <!-- RIGHT SIDE (RECEIVE + CONNECTED DEVICES) -->
+    <div class="right-stack">
+
+      <section class="card">
+        <h2>Receive</h2>
+        <div id="receiveBox" class="receive-box">
+          Waiting for incoming files...
+          <div id="progressArea"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Connected Devices</h2>
+        <div id="devices" class="device-list"></div>
+      </section>
+
+    </div>
+
+  </div>
+
+</section>
+
+
+  <!-- RIGHT → 35% BLANK SPACE -->
+  <!-- RIGHT → 35% CHAT SECTION -->
+<section class="right-column">
+  <div class="chat-container">
+    
+    <!-- Chat Header -->
+    <div class="chat-header">
+      <h2>
+        💬 Ephemeral Chat
+        <span class="chat-status" id="chatStatus">● Active</span>
+      </h2>
+      
+      <!-- User Selector -->
+      <div class="chat-user-selector">
+        <label>Chat with:</label>
+        <select id="chatUserSelect">
+          <option value="">Select a user...</option>
+        </select>
       </div>
-    </section>
+      
+      <!-- Online Users -->
+      <div id="onlineUsersList" class="online-users-list"></div>
+    </div>
+    
+    <!-- Messages Area -->
+    <div class="chat-messages" id="chatMessages">
+      <div class="chat-empty-state">
+        <div class="icon">💬</div>
+        <p><strong>Secure Ephemeral Chat</strong></p>
+        <p style="font-size: 13px; margin-top: 8px;">
+          🔥 Messages auto-delete in 3 hours<br>
+          🚫 Zero storage, RAM only<br>
+          🔒 End-to-end encrypted
+        </p>
+      </div>
+    </div>
+    
+    <!-- Input Area -->
+    <div class="chat-input-area">
+      <div class="chat-input-row">
+        <input 
+          type="text" 
+          id="chatInput" 
+          placeholder="Type your message..."
+          disabled
+        />
+        <button id="chatSendBtn" class="chat-send-btn" disabled>Send</button>
+      </div>
+      
+      <div class="chat-actions">
+        <button id="burnChatBtn" class="chat-action-btn burn-btn">🔥 Burn All</button>
+        <button id="leaveChatBtn" class="chat-action-btn leave-btn">👋 Leave Chat</button>
+      </div>
+    </div>
+    
+  </div>
+</section>
 
-    <section class="card">
-      <h2>Connected Devices</h2>
-      <div id="devices" class="device-list"></div>
-    </section>
-  </main>
+</main>
+
+
 
   <div id="popup" class="popup hidden"></div>
-    <div id="approvalModal" class="approval-modal hidden">
+  <!-- NEW: File Approval Modal -->
+  <div id="approvalModal" class="approval-modal hidden">
     <div class="approval-content">
       <h2>Incoming Files</h2>
       <p id="approvalSender"></p>
