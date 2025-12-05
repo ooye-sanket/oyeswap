@@ -671,3 +671,306 @@ socket.on("file-approval-request", (data) => {
     showPopup("File transfer rejected ", false);
   };
 });
+/* ========================================
+   EPHEMERAL CHAT SYSTEM (3-HOUR AUTO-DELETE)
+   ======================================== */
+
+// Chat state (all in RAM, no persistence)
+let currentChatPartner = null;
+let chatMessages = []; // {id, from, to, text, timestamp, expiresAt}
+let chatRoomId = null;
+
+// Get chat elements
+const chatUserSelect = el("chatUserSelect");
+const chatMessages_el = el("chatMessages");
+const chatInput = el("chatInput");
+const chatSendBtn = el("chatSendBtn");
+const burnChatBtn = el("burnChatBtn");
+const leaveChatBtn = el("leaveChatBtn");
+const onlineUsersList = el("onlineUsersList");
+const chatStatus = el("chatStatus");
+
+// Constants
+const CHAT_EXPIRY_MS = 3 * 60 * 60 * 1000; // 3 hours
+const CLEANUP_INTERVAL = 60 * 1000; // Check every minute
+
+/* -------------------- UPDATE ONLINE USERS -------------------- */
+function updateChatOnlineUsers(devices) {
+  // Update dropdown
+  chatUserSelect.innerHTML = '<option value="">Select a user...</option>';
+  
+  // Update badges
+  onlineUsersList.innerHTML = '';
+  
+  devices.forEach(d => {
+    if (d.clientId === clientId) return; // Skip self
+    
+    // Add to dropdown
+    const option = document.createElement('option');
+    option.value = d.clientId;
+    option.textContent = d.name;
+    chatUserSelect.appendChild(option);
+    
+    // Add badge
+    const badge = document.createElement('div');
+    badge.className = 'online-user-badge';
+    badge.innerHTML = `<span class="online-dot"></span>${d.name}`;
+    onlineUsersList.appendChild(badge);
+  });
+  
+  // If current partner is offline, notify
+  if (currentChatPartner) {
+    const partnerOnline = devices.find(d => d.clientId === currentChatPartner);
+    if (!partnerOnline) {
+      addSystemMessage("User went offline. Chat room still active for 3 hours.");
+    }
+  }
+}
+
+// Listen to device updates for chat
+socket.on("devices", (list) => {
+  // ... existing code stays ...
+  latestDevices = list;
+  // ... rest of existing device code ...
+  
+  // NEW: Update chat users
+  updateChatOnlineUsers(list);
+});
+
+/* -------------------- CHAT ROOM MANAGEMENT -------------------- */
+chatUserSelect.onchange = () => {
+  const selectedUserId = chatUserSelect.value;
+  if (!selectedUserId) return;
+  
+  const selectedUser = latestDevices.find(d => d.clientId === selectedUserId);
+  if (!selectedUser) return;
+  
+  // Generate deterministic room ID (alphabetically sorted to match both users)
+  const users = [clientId, selectedUserId].sort();
+  chatRoomId = `room_${users[0]}_${users[1]}`;
+  currentChatPartner = selectedUserId;
+  
+  // Enable chat
+  chatInput.disabled = false;
+  chatSendBtn.disabled = false;
+  
+  // Join room
+  socket.emit("join-chat-room", { roomId: chatRoomId, userName: myName });
+  
+  // Clear and show welcome
+  chatMessages = [];
+  renderChatMessages();
+  addSystemMessage(`🔒 Secure chat with ${selectedUser.name}. Messages expire in 3 hours.`);
+  
+  showPopup(`Chat started with ${selectedUser.name}`);
+};
+
+/* -------------------- SEND MESSAGE -------------------- */
+function sendChatMessage() {
+  const text = chatInput.value.trim();
+  if (!text || !currentChatPartner || !chatRoomId) return;
+  
+  const message = {
+    id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    from: clientId,
+    fromName: myName,
+    to: currentChatPartner,
+    text: text,
+    timestamp: Date.now(),
+    expiresAt: Date.now() + CHAT_EXPIRY_MS,
+    roomId: chatRoomId
+  };
+  
+  // Send to server
+  socket.emit("chat-message", message);
+  
+  // Add to local messages
+  chatMessages.push(message);
+  renderChatMessages();
+  
+  // Clear input
+  chatInput.value = '';
+  chatInput.focus();
+}
+
+chatSendBtn.onclick = sendChatMessage;
+chatInput.onkeypress = (e) => {
+  if (e.key === 'Enter') sendChatMessage();
+};
+
+/* -------------------- RECEIVE MESSAGE -------------------- */
+socket.on("chat-message", (message) => {
+  // Only accept messages for current room
+  if (message.roomId === chatRoomId) {
+    chatMessages.push(message);
+    renderChatMessages();
+    
+    // Play notification sound (optional)
+    if (message.from !== clientId) {
+      playNotificationSound();
+    }
+  }
+});
+
+/* -------------------- RENDER MESSAGES -------------------- */
+function renderChatMessages() {
+  if (chatMessages.length === 0) {
+    chatMessages_el.innerHTML = `
+      <div class="chat-empty-state">
+        <div class="icon">💬</div>
+        <p><strong>Start chatting!</strong></p>
+        <p style="font-size: 13px; margin-top: 8px;">
+          Messages will auto-delete in 3 hours
+        </p>
+      </div>
+    `;
+    return;
+  }
+  
+  chatMessages_el.innerHTML = '';
+  
+  chatMessages.forEach(msg => {
+    const isOwn = msg.from === clientId;
+    const timeLeft = msg.expiresAt - Date.now();
+    const hoursLeft = Math.floor(timeLeft / (1000 * 60 * 60));
+    const minutesLeft = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
+    
+    const messageEl = document.createElement('div');
+    messageEl.className = `chat-message ${isOwn ? 'own' : 'other'}`;
+    
+    messageEl.innerHTML = `
+      ${!isOwn ? `<div class="message-sender">${msg.fromName}</div>` : ''}
+      <div class="message-bubble">
+        ${escapeHtml(msg.text)}
+        <div class="message-time">${formatTimestamp(msg.timestamp)}</div>
+        <div class="message-destructs-in">🔥 ${hoursLeft}h ${minutesLeft}m left</div>
+      </div>
+    `;
+    
+    chatMessages_el.appendChild(messageEl);
+  });
+  
+  // Auto-scroll to bottom
+  chatMessages_el.scrollTop = chatMessages_el.scrollHeight;
+}
+
+/* -------------------- SYSTEM MESSAGES -------------------- */
+function addSystemMessage(text) {
+  const systemMsg = document.createElement('div');
+  systemMsg.className = 'system-message';
+  systemMsg.textContent = text;
+  chatMessages_el.appendChild(systemMsg);
+  chatMessages_el.scrollTop = chatMessages_el.scrollHeight;
+}
+
+/* -------------------- BURN MODE (DELETE ALL) -------------------- */
+burnChatBtn.onclick = () => {
+  if (!chatRoomId) {
+    showPopup("No active chat to burn", false);
+    return;
+  }
+  
+  if (confirm("🔥 BURN ALL MESSAGES? This cannot be undone!")) {
+    // Emit burn event to all room members
+    socket.emit("burn-chat", { roomId: chatRoomId });
+    
+    // Clear locally
+    chatMessages = [];
+    renderChatMessages();
+    addSystemMessage("🔥 All messages burned!");
+    
+    showPopup("Chat burned! 🔥");
+  }
+};
+
+// Receive burn event
+socket.on("chat-burned", (data) => {
+  if (data.roomId === chatRoomId) {
+    chatMessages = [];
+    renderChatMessages();
+    addSystemMessage("🔥 Chat was burned by another user!");
+    showPopup("Chat burned!", false);
+  }
+});
+
+/* -------------------- LEAVE CHAT -------------------- */
+leaveChatBtn.onclick = () => {
+  if (!chatRoomId) {
+    showPopup("No active chat", false);
+    return;
+  }
+  
+  // Notify room
+  socket.emit("leave-chat-room", { roomId: chatRoomId, userName: myName });
+  
+  // Reset state
+  currentChatPartner = null;
+  chatRoomId = null;
+  chatMessages = [];
+  chatUserSelect.value = '';
+  chatInput.disabled = true;
+  chatSendBtn.disabled = true;
+  
+  renderChatMessages();
+  showPopup("Left chat room");
+};
+
+// Receive leave notification
+socket.on("user-left-chat", (data) => {
+  if (data.roomId === chatRoomId) {
+    addSystemMessage(`${data.userName} left the chat. Room stays active for 3 hours.`);
+  }
+});
+
+// Receive join notification
+socket.on("user-joined-chat", (data) => {
+  if (data.roomId === chatRoomId && data.userName !== myName) {
+    addSystemMessage(`${data.userName} joined the chat`);
+  }
+});
+
+/* -------------------- AUTO-CLEANUP (3 HOURS) -------------------- */
+setInterval(() => {
+  const now = Date.now();
+  const before = chatMessages.length;
+  
+  // Remove expired messages
+  chatMessages = chatMessages.filter(msg => msg.expiresAt > now);
+  
+  if (chatMessages.length < before) {
+    renderChatMessages();
+    if (chatMessages.length === 0 && currentChatPartner) {
+      addSystemMessage("🕒 All messages expired (3 hours passed)");
+    }
+  }
+  
+  // Update destructs-in timers
+  if (chatMessages.length > 0) {
+    renderChatMessages();
+  }
+}, CLEANUP_INTERVAL);
+
+/* -------------------- HELPER FUNCTIONS -------------------- */
+function formatTimestamp(ts) {
+  const date = new Date(ts);
+  const hours = date.getHours().toString().padStart(2, '0');
+  const minutes = date.getMinutes().toString().padStart(2, '0');
+  return `${hours}:${minutes}`;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function playNotificationSound() {
+  // Optional: play a subtle notification sound
+  const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZizMIGGW56+qeSwkOVKzn7aRVFQxNqOTxtWomBS51xvDdkT4KFlm05OunTQ8QSKPp7bhiHwc3jsLx1YIyCAhjuOrrrlQMEmqy6OqiSQ0HGmW5/O+iTgoUW7Xk66RVFQxOnebxt2snBTBxxfHdkT4IFVi05uunTQ8QSKPp7bhiHwc3jsLx1YIyCAhjuOrrrlQMEmqy6OqiSQ0HGmW5/O+iTgoUW7Xk66RVFQxOnebxt2snBTBxxfHdkT4KE2S56u2bUQwQTarh8K1hGAQ3jcXy1YEyBwdkuevqnlENDlyy5eykTxILXb3k66lSEg5apd7xtmciBS52xPLdkDwIFl205uyoTg8PVKzn7aFVFApGn+DyvmwhBSuBzvLZizMIGGW56+qeSQsOW7Tl7aRXEwxPo+furWEbBC53xfHdkj4KFVu05O2nTg0QVKvn7KRVFQxNqOLxt2wmBCx3xfHekj4KFVm04OqnTg0QVKvn7KRVFQxNqOLxt2wmBCx3xfHekj4KFVm04OqnTg0QVKvn7KRVFQxNqOLxt2wmBCx3xfHekj4KFVm04OqnTg0QVKvn7KRVFQxNqOLxt2wmBCx3xfHekj4KFVm04OqnTg0QVKvn7KRVFQxNqOLxt2wmBCx3xfHekj4KFVm04OqnTg0QVKvn7KRVFQxNqOLxt2wmBCx3xfHekj4KFVm04OqnTg0QVKvn7KRVFQxNqOLxt2wmBCx3xfHekj4KFVm04OqnTg0QVKvn7KRVFQxNqOLxt2wmBCx3xfHekj4K');
+  audio.volume = 0.3;
+  audio.play().catch(() => {}); // Silent fail if blocked
+}
+
+/* -------------------- INITIAL STATE -------------------- */
+chatInput.disabled = true;
+chatSendBtn.disabled = true;
