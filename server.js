@@ -120,7 +120,7 @@ function clientIdToSocketId(clientId) {
 }
 
 const pendingQueue = new Map();
-
+const chatRooms = new Map();
 io.on("connection", (socket) => {
   // 🔒 SECURITY: Check connection rate
   if (!checkConnectionLimit(socket.id)) {
@@ -171,6 +171,123 @@ io.on("connection", (socket) => {
     devices.delete(socket.id);
     io.emit("devices", getDevices());
     console.log("Disconnected:", socket.id);
+  });
+  /* ========================================
+     EPHEMERAL CHAT HANDLERS (RAM ONLY)
+     ======================================== */
+  
+  // Store active chat rooms (in RAM only)
+  // const chatRooms = new Map(); // roomId -> {messages: [], createdAt, members: Set}
+  
+  // Join chat room
+  socket.on("join-chat-room", (data) => {
+    const { roomId, userName } = data;
+    
+    if (!roomId || typeof roomId !== 'string') return;
+    
+    socket.join(roomId);
+    
+    // Initialize room if doesn't exist
+    if (!chatRooms.has(roomId)) {
+      chatRooms.set(roomId, {
+        messages: [],
+        createdAt: Date.now(),
+        members: new Set()
+      });
+    }
+    
+    const room = chatRooms.get(roomId);
+    room.members.add(socket.id);
+    
+    // Notify room members
+    io.to(roomId).emit("user-joined-chat", {
+      roomId,
+      userName: userName || "Unknown",
+      timestamp: Date.now()
+    });
+    
+    console.log(`📨 ${userName} joined chat room: ${roomId}`);
+  });
+  
+  // Handle chat message
+  socket.on("chat-message", (message) => {
+    if (!message.roomId) return;
+    
+    // 🔒 SECURITY: Validate message
+    if (!message.text || typeof message.text !== 'string' || message.text.length > 5000) {
+      socket.emit('error', 'Invalid message');
+      return;
+    }
+    
+    // 🔒 SECURITY: Sanitize text (prevent XSS)
+    message.text = message.text.replace(/[<>]/g, '');
+    
+    const room = chatRooms.get(message.roomId);
+    if (room) {
+      // Store in RAM with expiry
+      room.messages.push({
+        ...message,
+        expiresAt: Date.now() + (3 * 60 * 60 * 1000) // 3 hours
+      });
+      
+      // Broadcast to room (including sender for confirmation)
+      io.to(message.roomId).emit("chat-message", message);
+    }
+  });
+  
+  // Handle burn chat
+  socket.on("burn-chat", (data) => {
+    const { roomId } = data;
+    if (!roomId) return;
+    
+    const room = chatRooms.get(roomId);
+    if (room) {
+      room.messages = []; // Clear all messages
+      
+      // Notify all room members
+      io.to(roomId).emit("chat-burned", { roomId });
+      
+      console.log(`🔥 Chat burned in room: ${roomId}`);
+    }
+  });
+  
+  // Handle leave chat
+  socket.on("leave-chat-room", (data) => {
+    const { roomId, userName } = data;
+    if (!roomId) return;
+    
+    socket.leave(roomId);
+    
+    const room = chatRooms.get(roomId);
+    if (room) {
+      room.members.delete(socket.id);
+      
+      // Notify room
+      io.to(roomId).emit("user-left-chat", {
+        roomId,
+        userName: userName || "Unknown",
+        timestamp: Date.now()
+      });
+      
+      console.log(`👋 ${userName} left chat room: ${roomId}`);
+    }
+  });
+  
+  // Cleanup when user disconnects
+  socket.on("disconnect", () => {
+    // Remove from all chat rooms
+    for (const [roomId, room] of chatRooms.entries()) {
+      if (room.members.has(socket.id)) {
+        room.members.delete(socket.id);
+        
+        const deviceInfo = devices.get(socket.id);
+        io.to(roomId).emit("user-left-chat", {
+          roomId,
+          userName: deviceInfo?.name || "Unknown",
+          timestamp: Date.now()
+        });
+      }
+    }
   });
 
   // NEW: Handle file approval requests
@@ -365,6 +482,30 @@ app.get("/health", (_, res) => res.json({
   connectedDevices: devices.size
 }));
 
+/* ========================================
+   AUTO-CLEANUP EXPIRED CHAT MESSAGES (3 HOURS)
+   ======================================== */
+setInterval(() => {
+  const now = Date.now();
+  const EXPIRY_MS = 3 * 60 * 60 * 1000; // 3 hours
+  
+  // Clean expired messages from all rooms
+  for (const [roomId, room] of chatRooms.entries()) {
+    const before = room.messages.length;
+    
+    // Remove expired messages
+    room.messages = room.messages.filter(msg => msg.expiresAt > now);
+    
+    // Remove empty rooms older than 3 hours
+    if (room.messages.length === 0 && (now - room.createdAt) > EXPIRY_MS) {
+      chatRooms.delete(roomId);
+      console.log(`🗑️  Deleted expired chat room: ${roomId}`);
+    } else if (room.messages.length < before) {
+      console.log(`🧹 Cleaned ${before - room.messages.length} expired messages from ${roomId}`);
+    }
+  }
+}, 60 * 1000); // Run every minute
+
 // 🔥 Get all local IP addresses (Fix for changing IPs)
 function getLocalIPs() {
   const interfaces = os.networkInterfaces();
@@ -389,7 +530,7 @@ server.listen(PORT, HOST, () => {
   const localIPs = getLocalIPs();
   
   if (localIPs.length > 0) {
-    console.log(' Access from ANY device on same WiFi:\n');
+    console.log('📱 Access from ANY device on same WiFi:\n');
     localIPs.forEach(ip => {
       console.log(`   http://${ip}:${PORT}`);
     });
