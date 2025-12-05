@@ -176,6 +176,118 @@ button:disabled {
   margin-bottom: 12px;
 }
 
+/* Approval Modal */
+.approval-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  backdrop-filter: blur(5px);
+}
+
+.approval-modal.hidden {
+  display: none;
+}
+
+.approval-content {
+  background: white;
+  padding: 30px;
+  border-radius: 12px;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-50px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.dark .approval-content {
+  background: #2d2d2d;
+  color: #fff;
+}
+
+.approval-content h2 {
+  margin: 0 0 15px 0;
+  font-size: 24px;
+}
+
+.approval-file-list {
+  background: #f5f5f5;
+  padding: 15px;
+  border-radius: 8px;
+  margin: 15px 0;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.dark .approval-file-list {
+  background: #1a1a1a;
+}
+
+.approval-file-item {
+  padding: 8px 0;
+  border-bottom: 1px solid #ddd;
+}
+
+.dark .approval-file-item {
+  border-bottom: 1px solid #444;
+}
+
+.approval-file-item:last-child {
+  border-bottom: none;
+}
+
+.approval-buttons {
+  display: flex;
+  gap: 15px;
+  margin-top: 20px;
+}
+
+.approval-buttons button {
+  flex: 1;
+  padding: 12px;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-accept {
+  background: #4caf50;
+  color: white;
+}
+
+.btn-accept:hover {
+  background: #45a049;
+  transform: scale(1.02);
+}
+
+.btn-reject {
+  background: #f44336;
+  color: white;
+}
+
+.btn-reject:hover {
+  background: #da190b;
+  transform: scale(1.02);
+}
 
 /* Popup */
 .popup {
