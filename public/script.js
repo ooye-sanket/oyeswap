@@ -67,12 +67,12 @@ el("editNameBtn").onclick = () => {
 const themeBtn = el("themeToggle");
 if (localStorage.getItem("theme") === "dark") {
   document.body.classList.add("dark");
-  themeBtn.textContent = "☀️";
+  themeBtn.textContent = "D";
 }
 themeBtn.onclick = () => {
   document.body.classList.toggle("dark");
   const dark = document.body.classList.contains("dark");
-  themeBtn.textContent = dark ? "☀️" : "🌙";
+  themeBtn.textContent = dark ? "D" : "N";
   localStorage.setItem("theme", dark ? "dark" : "light");
 };
 
@@ -331,6 +331,10 @@ function restoreSavedSelections() {
 }
 
 /* -------------------- 🚀 OPTIMIZED SEND with XHR -------------------- */
+
+// NEW: Track pending approvals
+const pendingApprovals = new Map();
+
 el("sendBtn").onclick = async () => {
   const files = currentFiles;
   const targets = [...document.querySelectorAll(".device-check")]
@@ -342,32 +346,119 @@ el("sendBtn").onclick = async () => {
 
   el("sendMsg").innerHTML = "";
   const statusArea = document.createElement("div");
+  
   targets.forEach((cid) => {
     const name = latestDevices.find((d) => d.clientId === cid)?.name || cid;
     const row = document.createElement("div");
     row.id = `status-${cid}`;
-    row.innerHTML = `<div><b>${name}:</b> <span class="status-text">uploading...</span></div>
+    row.innerHTML = `<div><b>${name}:</b> <span class="status-text">requesting approval...</span></div>
       <div class="progress"><div id="upload-bar-${cid}" class="progress-bar"></div></div>
       <div style="font-size:12px;margin-top:4px;color:#666" id="speed-${cid}"></div>`;
     statusArea.appendChild(row);
   });
   el("sendMsg").appendChild(statusArea);
 
-  try {
-    for (const toClientId of targets) {
-      const form = new FormData();
-      for (const f of files) form.append("file", f);
-      form.append("toClientId", toClientId);
-      form.append("fromName", myName);
+  // NEW: Request approval for each target
+  for (const toClientId of targets) {
+    const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Store files for later sending
+    pendingApprovals.set(requestId, { files, toClientId });
 
-      await uploadWithProgress(form, toClientId);
-    }
-    showPopup("Send finished ✓");
-  } catch (err) {
-    showPopup("Network error", false);
-    console.error(err);
+    // Send approval request
+    const fileInfo = files.map(f => ({
+      name: f.name,
+      size: f.size,
+      type: f.type
+    }));
+
+    const totalSize = files.reduce((sum, f) => sum + f.size, 0);
+
+    socket.emit("request-file-approval", {
+      requestId,
+      fromName: myName,
+      fromClientId: clientId,
+      toClientId,
+      files: fileInfo,
+      totalSize
+    });
+
+    const statusTextEl = document.querySelector(`#status-${toClientId} .status-text`);
+    if (statusTextEl) statusTextEl.textContent = "waiting for approval...";
   }
 };
+
+// NEW: Handle approval response
+socket.on("file-approved", async (data) => {
+  const { requestId, approved, toClientId } = data;
+  const pending = pendingApprovals.get(requestId);
+  
+  if (!pending) return;
+
+  const statusTextEl = document.querySelector(`#status-${toClientId} .status-text`);
+  
+  if (!approved) {
+    if (statusTextEl) statusTextEl.textContent = "rejected ";
+    showPopup("File transfer rejected", false);
+    pendingApprovals.delete(requestId);
+    return;
+  }
+
+  // Approved - send files
+  if (statusTextEl) statusTextEl.textContent = "approved! uploading...";
+
+  try {
+    const form = new FormData();
+    for (const f of pending.files) form.append("file", f);
+    form.append("toClientId", toClientId);
+    form.append("fromName", myName);
+    form.append("approved", "true"); // NEW: Mark as approved
+
+    await uploadWithProgress(form, toClientId);
+    pendingApprovals.delete(requestId);
+  } catch (err) {
+    if (statusTextEl) statusTextEl.textContent = "error ";
+    showPopup("Upload failed", false);
+    console.error(err);
+  }
+});
+// el("sendBtn").onclick = async () => {
+//   const files = currentFiles;
+//   const targets = [...document.querySelectorAll(".device-check")]
+//     .filter((cb) => cb.checked)
+//     .map((cb) => cb.value);
+
+//   if (files.length === 0) return showPopup("Select a file or folder", false);
+//   if (targets.length === 0) return showPopup("Select at least one device", false);
+
+//   el("sendMsg").innerHTML = "";
+//   const statusArea = document.createElement("div");
+//   targets.forEach((cid) => {
+//     const name = latestDevices.find((d) => d.clientId === cid)?.name || cid;
+//     const row = document.createElement("div");
+//     row.id = `status-${cid}`;
+//     row.innerHTML = `<div><b>${name}:</b> <span class="status-text">uploading...</span></div>
+//       <div class="progress"><div id="upload-bar-${cid}" class="progress-bar"></div></div>
+//       <div style="font-size:12px;margin-top:4px;color:#666" id="speed-${cid}"></div>`;
+//     statusArea.appendChild(row);
+//   });
+//   el("sendMsg").appendChild(statusArea);
+
+//   try {
+//     for (const toClientId of targets) {
+//       const form = new FormData();
+//       for (const f of files) form.append("file", f);
+//       form.append("toClientId", toClientId);
+//       form.append("fromName", myName);
+
+//       await uploadWithProgress(form, toClientId);
+//     }
+//     showPopup("Send finished ✓");
+//   } catch (err) {
+//     showPopup("Network error", false);
+//     console.error(err);
+//   }
+// };
 
 // 🚀 OPTIMIZED: Speed calculation and better progress
 function uploadWithProgress(formData, toClientId) {
@@ -531,4 +622,52 @@ socket.on("file-complete", (data) => {
   if (card) {
     setTimeout(() => card.remove(), 3000);
   }
+});
+
+// NEW: Handle incoming approval requests
+socket.on("file-approval-request", (data) => {
+  const modal = el("approvalModal");
+  const sender = el("approvalSender");
+  const fileList = el("approvalFileList");
+  const totalSize = el("approvalTotalSize");
+
+  sender.textContent = `From: ${data.fromName}`;
+  
+  fileList.innerHTML = data.files.map(f => {
+    const sizeMB = (f.size / (1024 * 1024)).toFixed(2);
+    const sizeGB = (f.size / (1024 * 1024 * 1024)).toFixed(2);
+    const sizeStr = f.size > 1024 * 1024 * 1024 ? `${sizeGB} GB` : `${sizeMB} MB`;
+    return `<div class="approval-file-item">📄 ${f.name} (${sizeStr})</div>`;
+  }).join("");
+
+  const totalMB = (data.totalSize / (1024 * 1024)).toFixed(2);
+  const totalGB = (data.totalSize / (1024 * 1024 * 1024)).toFixed(2);
+  const totalStr = data.totalSize > 1024 * 1024 * 1024 ? `${totalGB} GB` : `${totalMB} MB`;
+  totalSize.textContent = `Total size: ${totalStr}`;
+
+  modal.classList.remove("hidden");
+
+  // Handle accept
+  el("approvalAccept").onclick = () => {
+    socket.emit("file-approval-response", {
+      requestId: data.requestId,
+      approved: true,
+      fromClientId: data.fromClientId,
+      toClientId: clientId
+    });
+    modal.classList.add("hidden");
+    showPopup("File transfer accepted ");
+  };
+
+  // Handle reject
+  el("approvalReject").onclick = () => {
+    socket.emit("file-approval-response", {
+      requestId: data.requestId,
+      approved: false,
+      fromClientId: data.fromClientId,
+      toClientId: clientId
+    });
+    modal.classList.add("hidden");
+    showPopup("File transfer rejected ", false);
+  };
 });
