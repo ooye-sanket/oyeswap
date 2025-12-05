@@ -129,7 +129,7 @@ io.on("connection", (socket) => {
     return;
   }
 
-  console.log("✅ Connected:", socket.id);
+  console.log("Connected:", socket.id);
 
   socket.on("register", ({ name, clientId }) => {
     // 🔒 SECURITY: Validate input
@@ -170,7 +170,33 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     devices.delete(socket.id);
     io.emit("devices", getDevices());
-    console.log("❌ Disconnected:", socket.id);
+    console.log("Disconnected:", socket.id);
+  });
+
+  // NEW: Handle file approval requests
+  socket.on("request-file-approval", (data) => {
+    const targetSocket = clientIdToSocketId(data.toClientId);
+    if (targetSocket) {
+      io.to(targetSocket).emit("file-approval-request", {
+        requestId: data.requestId,
+        fromName: data.fromName,
+        fromClientId: data.fromClientId,
+        files: data.files,
+        totalSize: data.totalSize
+      });
+    }
+  });
+
+  // NEW: Handle approval response
+  socket.on("file-approval-response", (data) => {
+    const senderSocket = clientIdToSocketId(data.fromClientId);
+    if (senderSocket) {
+      io.to(senderSocket).emit("file-approved", {
+        requestId: data.requestId,
+        approved: data.approved,
+        toClientId: data.toClientId
+      });
+    }
   });
 });
 
@@ -202,7 +228,7 @@ function streamFileToSocket(socketId, fileName, fileType, fromName, buffer) {
         name: fileName,
         from: fromName
       });
-      console.log(`✅ Transfer complete: ${fileName} (${(totalSize / 1024 / 1024).toFixed(2)} MB)`);
+      console.log(`Transfer complete: ${fileName} (${(totalSize / 1024 / 1024).toFixed(2)} MB)`);
       return;
     }
 
@@ -231,6 +257,7 @@ app.post("/upload", uploadLimiter, upload.array("file"), (req, res) => {
   const toClientId = req.body.toClientId || null;
   const toSocketIdFallback = req.body.toSocketId || null;
   const fromName = req.body.fromName || "Unknown";
+  const approved = req.body.approved === "true"; // NEW: Check if approved
 
   if (!files || files.length === 0) {
     return res.status(400).json({ error: "No file uploaded" });
@@ -264,7 +291,8 @@ app.post("/upload", uploadLimiter, upload.array("file"), (req, res) => {
 
   const results = [];
 
-  if (targetSocketId) {
+  // NEW: Only send if approved
+  if (targetSocketId && approved) {
     console.log(`📤 Sending ${files.length} file(s) from ${fromName} to ${targetClientId}`);
     
     files.forEach((file) => {
@@ -276,6 +304,12 @@ app.post("/upload", uploadLimiter, upload.array("file"), (req, res) => {
       message: "ok",
       toClientId: targetClientId,
       delivered: results
+    });
+  } else if (!approved) {
+    // NEW: Return success for approval request
+    return res.json({
+      message: "approval_requested",
+      toClientId: targetClientId
     });
   } else {
     if (!targetClientId) {
@@ -350,21 +384,19 @@ const PORT = process.env.PORT || 3000;
 const HOST = '0.0.0.0'; // Listen on all interfaces
 
 server.listen(PORT, HOST, () => {
-
   console.log('   OyeSwap Server Beast mode ON');
-
   
   const localIPs = getLocalIPs();
   
   if (localIPs.length > 0) {
-    console.log('📱 Access from ANY device on same WiFi:\n');
+    console.log(' Access from ANY device on same WiFi:\n');
     localIPs.forEach(ip => {
-      console.log(`   ✅ http://${ip}:${PORT}`);
+      console.log(`   http://${ip}:${PORT}`);
     });
   }
   
   console.log('\n💻 Access from this computer:\n');
-  console.log(`   ✅ http://localhost:${PORT}`);
+  console.log(`   http://localhost:${PORT}`);
   
   if (localIPs.length > 0) {
     console.log('\n📋 Quick Access Instructions:\n');
@@ -375,6 +407,5 @@ server.listen(PORT, HOST, () => {
   }
   
   console.log('\n🔒 Security Features Active:');
-
   console.log('\n========================================\n');
 });
