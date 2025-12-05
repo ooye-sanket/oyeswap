@@ -83,6 +83,18 @@
   </main>
 
   <div id="popup" class="popup hidden"></div>
+    <div id="approvalModal" class="approval-modal hidden">
+    <div class="approval-content">
+      <h2>Incoming Files</h2>
+      <p id="approvalSender"></p>
+      <div id="approvalFileList" class="approval-file-list"></div>
+      <p id="approvalTotalSize"></p>
+      <div class="approval-buttons">
+        <button id="approvalAccept" class="btn-accept">Accept</button>
+        <button id="approvalReject" class="btn-reject">Reject</button>
+      </div>
+    </div>
+  </div>
 
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
