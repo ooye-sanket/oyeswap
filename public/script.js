@@ -1,5 +1,3 @@
-
-
 const socket = io({
   transports: ['websocket', 'polling'], 
   upgrade: true,
@@ -798,6 +796,16 @@ chatInput.onkeypress = (e) => {
   if (e.key === 'Enter') sendChatMessage();
 };
 
+/* -------------------- RECEIVE CHAT HISTORY (when joining) -------------------- */
+socket.on("chat-history", (data) => {
+  if (data.roomId === chatRoomId) {
+    // Load all previous messages
+    chatMessages = data.messages;
+    renderChatMessages();
+    addSystemMessage(`📜 Loaded ${data.messages.length} previous message(s)`);
+  }
+});
+
 /* -------------------- RECEIVE MESSAGE -------------------- */
 socket.on("chat-message", (message) => {
   // Only accept messages for current room
@@ -843,7 +851,7 @@ function renderChatMessages() {
       <div class="message-bubble">
         ${escapeHtml(msg.text)}
         <div class="message-time">${formatTimestamp(msg.timestamp)}</div>
-        <div class="message-destructs-in">🔥 ${hoursLeft}h ${minutesLeft}m left</div>
+        <div class="message-destructs-in"> ${hoursLeft}h ${minutesLeft}m left</div>
       </div>
     `;
     
@@ -870,16 +878,16 @@ burnChatBtn.onclick = () => {
     return;
   }
   
-  if (confirm("🔥 BURN ALL MESSAGES? This cannot be undone!")) {
+  if (confirm(" BURN ALL MESSAGES? This cannot be undone!")) {
     // Emit burn event to all room members
     socket.emit("burn-chat", { roomId: chatRoomId });
     
     // Clear locally
     chatMessages = [];
     renderChatMessages();
-    addSystemMessage("🔥 All messages burned!");
+    addSystemMessage(" All messages burned!");
     
-    showPopup("Chat burned! 🔥");
+    showPopup("Chat burned! ");
   }
 };
 
@@ -888,7 +896,7 @@ socket.on("chat-burned", (data) => {
   if (data.roomId === chatRoomId) {
     chatMessages = [];
     renderChatMessages();
-    addSystemMessage("🔥 Chat was burned by another user!");
+    addSystemMessage(" Chat was burned by another user!");
     showPopup("Chat burned!", false);
   }
 });
