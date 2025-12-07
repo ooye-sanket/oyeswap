@@ -34,8 +34,8 @@ const uploadLimiter = rateLimit({
   message: 'Too many file uploads, please slow down.'
 });
 
-const io = new SocketServer(server, { 
-  cors: { 
+const io = new SocketServer(server, {
+  cors: {
     origin: process.env.ALLOWED_ORIGINS || "*",
     methods: ["GET", "POST"]
   },
@@ -67,19 +67,19 @@ const ALLOWED_MIME_TYPES = [
 
 function isFileAllowed(filename, mimetype) {
   const ext = filename.toLowerCase().substring(filename.lastIndexOf('.'));
-  
+
   // Block dangerous extensions
   if (BLOCKED_EXTENSIONS.includes(ext)) {
     return false;
   }
-  
+
   // Allow common safe types
   return ALLOWED_MIME_TYPES.some(type => mimetype.startsWith(type));
 }
 
-const upload = multer({ 
+const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { 
+  limits: {
     fileSize: 10 * 1024 * 1024 * 1024, // 10GB
     files: 10
   },
@@ -99,14 +99,14 @@ const connectionAttempts = new Map(); // Track connection attempts
 function checkConnectionLimit(socketId) {
   const now = Date.now();
   const attempts = connectionAttempts.get(socketId) || [];
-  
+
   // Remove old attempts (older than 1 minute)
   const recentAttempts = attempts.filter(time => now - time < 60000);
-  
+
   if (recentAttempts.length >= 10) {
     return false; // Too many connections
   }
-  
+
   recentAttempts.push(now);
   connectionAttempts.set(socketId, recentAttempts);
   return true;
@@ -137,7 +137,7 @@ io.on("connection", (socket) => {
       socket.emit('error', 'Invalid device name');
       return;
     }
-    
+
     if (!clientId || typeof clientId !== 'string' || clientId.length > 100) {
       socket.emit('error', 'Invalid client ID');
       return;
@@ -145,13 +145,13 @@ io.on("connection", (socket) => {
 
     // 🔒 SECURITY: Sanitize name (prevent XSS)
     const sanitizedName = name.replace(/[<>]/g, '').trim();
-    
-    devices.set(socket.id, { 
-      name: sanitizedName || "Unknown", 
+
+    devices.set(socket.id, {
+      name: sanitizedName || "Unknown",
       clientId: clientId,
       connectedAt: Date.now()
     });
-    
+
     io.emit("devices", getDevices());
 
     if (clientId) {
@@ -175,18 +175,19 @@ io.on("connection", (socket) => {
   /* ========================================
      EPHEMERAL CHAT HANDLERS (RAM ONLY)
      ======================================== */
-  
+
   // Store active chat rooms (in RAM only)
   // const chatRooms = new Map(); // roomId -> {messages: [], createdAt, members: Set}
-  
+
+
   // Join chat room
   socket.on("join-chat-room", (data) => {
     const { roomId, userName } = data;
-    
+
     if (!roomId || typeof roomId !== 'string') return;
-    
+
     socket.join(roomId);
-    
+
     // Initialize room if doesn't exist
     if (!chatRooms.has(roomId)) {
       chatRooms.set(roomId, {
@@ -195,33 +196,41 @@ io.on("connection", (socket) => {
         members: new Set()
       });
     }
-    
+
     const room = chatRooms.get(roomId);
     room.members.add(socket.id);
-    
-    // Notify room members
-    io.to(roomId).emit("user-joined-chat", {
+
+    // FIX: Send chat history to the newly joined user
+    if (room.messages.length > 0) {
+      socket.emit("chat-history", {
+        roomId,
+        messages: room.messages
+      });
+    }
+
+    // Notify room members (except the one who just joined)
+    socket.to(roomId).emit("user-joined-chat", {
       roomId,
       userName: userName || "Unknown",
       timestamp: Date.now()
     });
-    
+
     console.log(`📨 ${userName} joined chat room: ${roomId}`);
   });
-  
+
   // Handle chat message
   socket.on("chat-message", (message) => {
     if (!message.roomId) return;
-    
+
     // 🔒 SECURITY: Validate message
     if (!message.text || typeof message.text !== 'string' || message.text.length > 5000) {
       socket.emit('error', 'Invalid message');
       return;
     }
-    
+
     // 🔒 SECURITY: Sanitize text (prevent XSS)
     message.text = message.text.replace(/[<>]/g, '');
-    
+
     const room = chatRooms.get(message.roomId);
     if (room) {
       // Store in RAM with expiry
@@ -229,57 +238,57 @@ io.on("connection", (socket) => {
         ...message,
         expiresAt: Date.now() + (3 * 60 * 60 * 1000) // 3 hours
       });
-      
+
       // Broadcast to room (including sender for confirmation)
-      io.to(message.roomId).emit("chat-message", message);
+      socket.to(message.roomId).emit("chat-message", message);
     }
   });
-  
+
   // Handle burn chat
   socket.on("burn-chat", (data) => {
     const { roomId } = data;
     if (!roomId) return;
-    
+
     const room = chatRooms.get(roomId);
     if (room) {
       room.messages = []; // Clear all messages
-      
+
       // Notify all room members
       io.to(roomId).emit("chat-burned", { roomId });
-      
-      console.log(`🔥 Chat burned in room: ${roomId}`);
+
+      console.log(` Chat burned in room: ${roomId}`);
     }
   });
-  
+
   // Handle leave chat
   socket.on("leave-chat-room", (data) => {
     const { roomId, userName } = data;
     if (!roomId) return;
-    
+
     socket.leave(roomId);
-    
+
     const room = chatRooms.get(roomId);
     if (room) {
       room.members.delete(socket.id);
-      
+
       // Notify room
       io.to(roomId).emit("user-left-chat", {
         roomId,
         userName: userName || "Unknown",
         timestamp: Date.now()
       });
-      
+
       console.log(`👋 ${userName} left chat room: ${roomId}`);
     }
   });
-  
+
   // Cleanup when user disconnects
   socket.on("disconnect", () => {
     // Remove from all chat rooms
     for (const [roomId, room] of chatRooms.entries()) {
       if (room.members.has(socket.id)) {
         room.members.delete(socket.id);
-        
+
         const deviceInfo = devices.get(socket.id);
         io.to(roomId).emit("user-left-chat", {
           roomId,
@@ -327,7 +336,7 @@ function getDevices() {
 
 function streamFileToSocket(socketId, fileName, fileType, fromName, buffer) {
   let bytesSent = 0;
-  const CHUNK_SIZE = 512 * 1024; 
+  const CHUNK_SIZE = 512 * 1024;
   const totalSize = buffer.length;
 
   io.to(socketId).emit("file-start", {
@@ -338,7 +347,7 @@ function streamFileToSocket(socketId, fileName, fileType, fromName, buffer) {
   });
 
   let offset = 0;
-  
+
   const sendNextChunk = () => {
     if (offset >= totalSize) {
       io.to(socketId).emit("file-complete", {
@@ -385,7 +394,7 @@ app.post("/upload", uploadLimiter, upload.array("file"), (req, res) => {
   const MAX_SIZE = 10 * 1024 * 1024 * 1024;
   if (totalSize > MAX_SIZE) {
     console.log('⚠️ Upload rejected: Size exceeds limit');
-    return res.status(400).json({ 
+    return res.status(400).json({
       error: "Total size exceeds 10GB limit",
       size: totalSize,
       limit: MAX_SIZE
@@ -411,7 +420,7 @@ app.post("/upload", uploadLimiter, upload.array("file"), (req, res) => {
   // NEW: Only send if approved
   if (targetSocketId && approved) {
     console.log(`📤 Sending ${files.length} file(s) from ${fromName} to ${targetClientId}`);
-    
+
     files.forEach((file) => {
       streamFileToSocket(targetSocketId, file.originalname, file.mimetype, fromName, file.buffer);
       results.push({ name: file.originalname, status: "sent", size: file.size });
@@ -440,7 +449,7 @@ app.post("/upload", uploadLimiter, upload.array("file"), (req, res) => {
     }
 
     console.log(`📥 Queueing ${files.length} file(s) for offline device ${targetClientId}`);
-    
+
     files.forEach((file) => {
       queue.push({
         fileName: file.originalname,
@@ -465,7 +474,7 @@ app.post("/upload", uploadLimiter, upload.array("file"), (req, res) => {
 setInterval(() => {
   const now = Date.now();
   const ONE_HOUR = 60 * 60 * 1000;
-  
+
   for (const [clientId, queue] of pendingQueue.entries()) {
     const filtered = queue.filter(item => now - item.queuedAt < ONE_HOUR);
     if (filtered.length === 0) {
@@ -476,8 +485,8 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000);
 
-app.get("/health", (_, res) => res.json({ 
-  ok: true, 
+app.get("/health", (_, res) => res.json({
+  ok: true,
   timestamp: new Date().toISOString(),
   connectedDevices: devices.size
 }));
@@ -488,14 +497,14 @@ app.get("/health", (_, res) => res.json({
 setInterval(() => {
   const now = Date.now();
   const EXPIRY_MS = 3 * 60 * 60 * 1000; // 3 hours
-  
+
   // Clean expired messages from all rooms
   for (const [roomId, room] of chatRooms.entries()) {
     const before = room.messages.length;
-    
+
     // Remove expired messages
     room.messages = room.messages.filter(msg => msg.expiresAt > now);
-    
+
     // Remove empty rooms older than 3 hours
     if (room.messages.length === 0 && (now - room.createdAt) > EXPIRY_MS) {
       chatRooms.delete(roomId);
@@ -506,11 +515,11 @@ setInterval(() => {
   }
 }, 60 * 1000); // Run every minute
 
-// 🔥 Get all local IP addresses (Fix for changing IPs)
+// Get all local IP addresses (Fix for changing IPs)
 function getLocalIPs() {
   const interfaces = os.networkInterfaces();
   const addresses = [];
-  
+
   for (const name of Object.keys(interfaces)) {
     for (const iface of interfaces[name]) {
       if (iface.family === 'IPv4' && !iface.internal) {
@@ -526,19 +535,19 @@ const HOST = '0.0.0.0'; // Listen on all interfaces
 
 server.listen(PORT, HOST, () => {
   console.log('   OyeSwap Server Beast mode ON');
-  
+
   const localIPs = getLocalIPs();
-  
+
   if (localIPs.length > 0) {
     console.log('📱 Access from ANY device on same WiFi:\n');
     localIPs.forEach(ip => {
       console.log(`   http://${ip}:${PORT}`);
     });
   }
-  
+
   console.log('\n💻 Access from this computer:\n');
   console.log(`   http://localhost:${PORT}`);
-  
+
   if (localIPs.length > 0) {
     console.log('\n📋 Quick Access Instructions:\n');
     console.log(`   • On Mobile: Open browser → http://${localIPs[0]}:${PORT}`);
@@ -546,7 +555,7 @@ server.listen(PORT, HOST, () => {
     console.log(`   • On Tablet: Open browser → http://${localIPs[0]}:${PORT}`);
     console.log('\n💡 Tip: Bookmark the URL on your devices for easy access!');
   }
-  
+
   console.log('\n🔒 Security Features Active:');
   console.log('\n========================================\n');
 });
