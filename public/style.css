@@ -106,7 +106,6 @@ h2 {
   margin-bottom: 12px;
 }
 
-
 /* Device checkbox list */
 .device-check-list {
   display: flex;
@@ -146,7 +145,6 @@ button:disabled {
 }
 
 /* Receive box */
-/* Receive box */
 .receive-box {
   padding: 16px;
   border-radius: 8px;
@@ -181,7 +179,6 @@ button:disabled {
   margin-bottom: 12px;
 }
 
-
 /* Popup */
 .popup {
   position: fixed;
@@ -204,41 +201,71 @@ button:disabled {
   display: none;
 }
 
-/* GRID LAYOUT (65% LEFT, 35% RIGHT) */
+/* ========== LAYOUT SYSTEM ========== */
+
+/* Mobile first: everything stacked */
 .layout {
-  display: grid;
-  grid-template-columns: 65% 35%;
+  display: flex;
+  flex-direction: column;
   gap: 18px;
   max-width: 1300px;
   margin: auto;
+  padding: 14px;
 }
 
 .left-column {
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 18px;
 }
 
-/* Right side blank space */
-.blank-space {
-  background: var(--card);
-  border: 1px dashed var(--border);
-  border-radius: 12px;
-  min-height: 600px;
-  opacity: 0.25;   /* light ghost area */
+/* Inner grid - stacked on mobile */
+.inner-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
 
-/* MOBILE → stack everything */
-@media (max-width: 768px) {
+.send-section {
+  width: 100%;
+}
+
+.right-stack {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.right-column {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ========== DESKTOP: 2-COLUMN LAYOUT ========== */
+@media (min-width: 769px) {
   .layout {
-    grid-template-columns: 1fr;
+    display: grid;
+    grid-template-columns: 65% 35%;
   }
-
-  .blank-space {
-    display: none;
+  
+  .inner-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  
+  .send-section {
+    grid-column: 1 / 2;
+  }
+  
+  .right-stack {
+    grid-column: 2 / 3;
   }
 }
-/* Approval Modal */
+
+/* ========== APPROVAL MODAL ========== */
 .approval-modal {
   position: fixed;
   top: 0;
@@ -351,15 +378,7 @@ button:disabled {
   transform: scale(1.02);
 }
 
-/* Right side blank space */
-.blank-space {
-  background: var(--card);
-  border: 1px dashed var(--border);
-  border-radius: 12px;
-  min-height: 600px;
-  opacity: 0.25;   /* light ghost area */
-}
-/* ========== CHAT SECTION (35% RIGHT SIDE) ========== */
+/* ========== CHAT SECTION ========== */
 .chat-container {
   background: var(--card);
   border: 1px solid var(--border);
@@ -680,43 +699,66 @@ button:disabled {
   background: #888;
 }
 
-/* Mobile Responsive */
+/* ========== MOBILE RESPONSIVE ========== */
 @media (max-width: 768px) {
+    .layout {
+    display: block !important;
+    padding: 0 !important;
+    grid-template-columns: unset !important;
+  }
+    .left-column {
+    width: 100%;
+  }
+
+  .info-box {
+    margin: 8px;
+    padding: 10px;
+    font-size: 13px;
+  }
+  
+  .topbar {
+    padding: 10px 12px;
+  }
+  
+  .device-name {
+    font-size: 14px;
+  }
+  
+  .theme-btn,
+  .edit-btn {
+    width: 32px;
+    height: 32px;
+    font-size: 16px;
+  }
+  
   .chat-container {
     height: 500px;
-    max-height: none;
+    min-height: 400px;
   }
   
-  .chat-message {
-    max-width: 85%;
+  .button-group button {
+    font-size: 12px;
+    padding: 10px 8px;
   }
   
-  .chat-input-row {
-    flex-wrap: wrap;
+  .card {
+    margin-bottom: 12px;
   }
-  
-  .chat-actions {
-    flex-direction: column;
-  }
-  
-  .online-users-list {
-    max-height: 60px;
-  }
+  .chat-container {
+  min-height: 100vh !important;
+  height: 80px !important;
 }
 
-
-/* Right side: Receive + Connected Devices stacked */
-.right-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 22px;
-  width: 100%;
 }
-
-/* Mobile responsive */
 @media (max-width: 768px) {
-  .inner-grid {
-    grid-template-columns: 1fr;
+  .chat-section {
+    min-height: 82vh !important;
   }
 }
 
+@media (max-width: 576px) {
+  .button-group button {
+    font-size: 11px;
+    padding: 9px 6px;
+  }
+}
