@@ -56,6 +56,7 @@ app.use(cors({
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 app.use(express.static("public"));
+app.use('/media', express.static("media"));
 
 // 🔒 SECURITY: Validate file types (block dangerous files)
 const BLOCKED_EXTENSIONS = ['.exe', '.bat', '.cmd', '.sh', '.dll', '.scr', '.vbs', '.js', '.msi'];
