@@ -1,11 +1,24 @@
 {
-  "name": "oyeswap",
-  "short_name": "OYSP",
+  "name": "OyeSwap - Fast File Transfer",
+  "short_name": "OyeSwap",
+  "description": "Fast peer-to-peer file transfer on local network with ephemeral chat",
   "start_url": "/",
   "display": "standalone",
-  "icons": [
-    { "src": "/assets/icon-192.png", "sizes": "192x192", "type": "image/png" }
-  ],
   "background_color": "#ffffff",
-  "theme_color": "#ffffff"
+  "theme_color": "#4CAF50",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/media/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/media/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
 }
