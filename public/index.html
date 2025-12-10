@@ -4,6 +4,21 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#4CAF50" />
+  <meta name="description" content="Fast peer-to-peer file transfer on local network with ephemeral chat" />
+  
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="/manifest.json" />
+  
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="/media/favicon.svg" />
+  
+  <!-- iOS PWA Support -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="OyeSwap" />
+  <link rel="apple-touch-icon" href="/media/icon-192.png" />
+  
+  <!-- Stylesheets -->
   <link rel="stylesheet" href="/style.css" />
   <style>
     /* minimal progress UI styles (you can move to style.css) */
@@ -18,13 +33,16 @@
 </head>
 
 <body>
-  <header class="topbar">
-    <div style="display:flex; align-items:center; gap:8px;">
-      <div id="myDeviceName" class="device-name">Set your device name</div>
-      <button id="editNameBtn" class="edit-btn"></button>
-    </div>
-    <button id="themeToggle" class="theme-btn"></button>
-  </header>
+<header class="topbar">
+  <div style="display:flex; align-items:center; gap:8px;">
+    <div id="myDeviceName" class="device-name">Set your device name</div>
+    <button id="editNameBtn" class="edit-btn">✏️</button>
+  </div>
+  <div style="display:flex; gap:8px;">
+    <button id="installBtn" class="theme-btn" style="display:none;" title="Install App">📥</button>
+    <button id="themeToggle" class="theme-btn">🌙</button>
+  </div>
+</header>
 
   <section class="info-box">
     To transfer files, open OyeSwap on both devices connected to the same Wi-Fi or local network.
