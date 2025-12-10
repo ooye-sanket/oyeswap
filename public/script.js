@@ -6,6 +6,60 @@ const socket = io({
   reconnectionAttempts: 5
 });
 
+/* ========================================
+   PWA SERVICE WORKER REGISTRATION
+   ======================================== */
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then((registration) => {
+        console.log('✅ Service Worker registered successfully:', registration.scope);
+      })
+      .catch((error) => {
+        console.error('❌ Service Worker registration failed:', error);
+      });
+  });
+}
+
+// PWA Install Prompt
+let deferredPrompt;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  console.log('💾 PWA install prompt ready');
+  
+  // Show install button if it exists
+  const installBtn = document.getElementById('installBtn');
+  if (installBtn) {
+    installBtn.style.display = 'block';
+    installBtn.onclick = async () => {
+      if (deferredPrompt) {
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        console.log(`User ${outcome} the install prompt`);
+        if (outcome === 'accepted') {
+          showPopup('Installing app... 📥');
+        }
+        deferredPrompt = null;
+        installBtn.style.display = 'none';
+      }
+    };
+  }
+});
+
+// Track when app is installed
+window.addEventListener('appinstalled', () => {
+  console.log('✅ OyeSwap PWA installed successfully!');
+  showPopup('App installed! Find it on your home screen 🎉');
+});
+
+// Detect if running as PWA
+if (window.matchMedia('(display-mode: standalone)').matches) {
+  console.log('📱 Running as installed PWA');
+}
+
 const el = (id) => document.getElementById(id);
 
 // persistent clientId
