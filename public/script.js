@@ -26,6 +26,35 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+/* ========================================
+   PWA AUTO-UPDATE HANDLER
+   ======================================== */
+
+if ("serviceWorker" in navigator) {
+  // Check for updates every 10 minutes
+  setInterval(() => {
+    navigator.serviceWorker.getRegistration().then((reg) => {
+      if (reg) {
+        console.log("🔄 Checking for PWA updates...");
+        reg.update();
+      }
+    });
+  }, 10 * 60 * 1000); // Check every 10 minutes
+
+  // Listen for new service worker
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    console.log("✅ New version available! Reloading...");
+
+    // Show notification to user
+    showPopup("🎉 App updated! Reloading...", true);
+
+    // Wait 2 seconds then reload
+    setTimeout(() => {
+      window.location.reload();
+    }, 2000);
+  });
+}
+
 // PWA Install Prompt
 let deferredPrompt;
 
