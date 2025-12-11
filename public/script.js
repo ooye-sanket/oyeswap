@@ -1,23 +1,27 @@
 const socket = io({
-  transports: ['websocket', 'polling'], 
+  transports: ["websocket", "polling"],
   upgrade: true,
   reconnection: true,
   reconnectionDelay: 1000,
-  reconnectionAttempts: 5
+  reconnectionAttempts: 5,
 });
 
 /* ========================================
    PWA SERVICE WORKER REGISTRATION
    ======================================== */
 
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js')
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker
+      .register("/sw.js")
       .then((registration) => {
-        console.log('✅ Service Worker registered successfully:', registration.scope);
+        console.log(
+          "✅ Service Worker registered successfully:",
+          registration.scope
+        );
       })
       .catch((error) => {
-        console.error('❌ Service Worker registration failed:', error);
+        console.error("❌ Service Worker registration failed:", error);
       });
   });
 }
@@ -25,39 +29,39 @@ if ('serviceWorker' in navigator) {
 // PWA Install Prompt
 let deferredPrompt;
 
-window.addEventListener('beforeinstallprompt', (e) => {
+window.addEventListener("beforeinstallprompt", (e) => {
   e.preventDefault();
   deferredPrompt = e;
-  console.log('💾 PWA install prompt ready');
-  
+  console.log("💾 PWA install prompt ready");
+
   // Show install button if it exists
-  const installBtn = document.getElementById('installBtn');
+  const installBtn = document.getElementById("installBtn");
   if (installBtn) {
-    installBtn.style.display = 'block';
+    installBtn.style.display = "block";
     installBtn.onclick = async () => {
       if (deferredPrompt) {
         deferredPrompt.prompt();
         const { outcome } = await deferredPrompt.userChoice;
         console.log(`User ${outcome} the install prompt`);
-        if (outcome === 'accepted') {
-          showPopup('Installing app... 📥');
+        if (outcome === "accepted") {
+          showPopup("Installing app... 📥");
         }
         deferredPrompt = null;
-        installBtn.style.display = 'none';
+        installBtn.style.display = "none";
       }
     };
   }
 });
 
 // Track when app is installed
-window.addEventListener('appinstalled', () => {
-  console.log('✅ OyeSwap PWA installed successfully!');
-  showPopup('App installed! Find it on your home screen 🎉');
+window.addEventListener("appinstalled", () => {
+  console.log("✅ OyeSwap PWA installed successfully!");
+  showPopup("App installed! Find it on your home screen 🎉");
 });
 
 // Detect if running as PWA
-if (window.matchMedia('(display-mode: standalone)').matches) {
-  console.log('📱 Running as installed PWA');
+if (window.matchMedia("(display-mode: standalone)").matches) {
+  console.log("📱 Running as installed PWA");
 }
 
 const el = (id) => document.getElementById(id);
@@ -91,7 +95,7 @@ function showPopup(msg, success = true) {
   setTimeout(() => box.classList.remove("show"), 1800);
 }
 
-/* -------------------- INIT NAME & REGISTER -------------------- */
+/* -------------------- INIT NAME & REGISER -------------------- */
 function initializeName() {
   if (!myName) {
     myName = prompt("Enter your device name:");
@@ -196,11 +200,16 @@ async function handleFileSelection(input) {
 
   const totalSize = files.reduce((sum, f) => sum + f.size, 0);
   if (totalSize > MAX_FILE_SIZE) {
-    showPopup(`Total size exceeds 10GB limit (${(totalSize / (1024**3)).toFixed(2)}GB)`, false);
+    showPopup(
+      `Total size exceeds 10GB limit (${(totalSize / 1024 ** 3).toFixed(2)}GB)`,
+      false
+    );
     return;
   }
 
-  const hasRelPaths = files.some(f => f.webkitRelativePath && f.webkitRelativePath !== "");
+  const hasRelPaths = files.some(
+    (f) => f.webkitRelativePath && f.webkitRelativePath !== ""
+  );
 
   if (!hasRelPaths) {
     currentFiles = files;
@@ -213,7 +222,7 @@ async function handleFileSelection(input) {
   const zip = new JSZip();
 
   // 🚀 OPTIMIZED: Batch file addition
-  const addPromises = files.map(file => 
+  const addPromises = files.map((file) =>
     zip.file(file.webkitRelativePath, file)
   );
   await Promise.all(addPromises);
@@ -222,21 +231,26 @@ async function handleFileSelection(input) {
   let root = firstPath.split("/")[0] || "folder";
 
   const roots = new Set(
-    files.map(f => (f.webkitRelativePath || "").split("/")[0])
+    files.map((f) => (f.webkitRelativePath || "").split("/")[0])
   );
   if (roots.size > 1) root = "archive";
 
   // 🚀 OPTIMIZED: Better compression settings
-  const zipBlob = await zip.generateAsync({ 
+  const zipBlob = await zip.generateAsync({
     type: "blob",
     compression: "DEFLATE",
-    compressionOptions: { level: 6 } // Balance speed vs size
+    compressionOptions: { level: 6 }, // Balance speed vs size
   });
-  
-  const zipFile = new File([zipBlob], `${root}.zip`, { type: "application/zip" });
+
+  const zipFile = new File([zipBlob], `${root}.zip`, {
+    type: "application/zip",
+  });
 
   if (zipFile.size > MAX_FILE_SIZE) {
-    showPopup(`Zip exceeds 10GB limit (${(zipFile.size / (1024**3)).toFixed(2)}GB)`, false);
+    showPopup(
+      `Zip exceeds 10GB limit (${(zipFile.size / 1024 ** 3).toFixed(2)}GB)`,
+      false
+    );
     return;
   }
 
@@ -258,7 +272,10 @@ dropZone.ondrop = async (e) => {
     const files = [...e.dataTransfer.files];
     const totalSize = files.reduce((sum, f) => sum + f.size, 0);
     if (totalSize > MAX_FILE_SIZE) {
-      showPopup(`Total size exceeds 10GB (${(totalSize / (1024**3)).toFixed(2)}GB)`, false);
+      showPopup(
+        `Total size exceeds 10GB (${(totalSize / 1024 ** 3).toFixed(2)}GB)`,
+        false
+      );
       return;
     }
     currentFiles = files;
@@ -328,12 +345,13 @@ dropZone.ondrop = async (e) => {
     const seg = p.split("/")[0];
     if (seg) topRoots.add(seg);
   });
-  const zipName = topRoots.size === 1 ? `${[...topRoots][0]}.zip` : "archive.zip";
+  const zipName =
+    topRoots.size === 1 ? `${[...topRoots][0]}.zip` : "archive.zip";
 
-  const zipBlob = await zip.generateAsync({ 
+  const zipBlob = await zip.generateAsync({
     type: "blob",
     compression: "DEFLATE",
-    compressionOptions: { level: 6 }
+    compressionOptions: { level: 6 },
   });
   const zipFile = new File([zipBlob], zipName, { type: "application/zip" });
 
@@ -350,12 +368,15 @@ dropZone.ondrop = async (e) => {
 function showFilePreview(files) {
   if (files.length > 0) {
     el("filePreview").classList.remove("hidden");
-    el("filePreview").innerHTML = files.map((f) => {
-      const sizeMB = (f.size / (1024 * 1024)).toFixed(2);
-      const sizeGB = (f.size / (1024 * 1024 * 1024)).toFixed(2);
-      const sizeStr = f.size > 1024 * 1024 * 1024 ? `${sizeGB} GB` : `${sizeMB} MB`;
-      return `<div>📦 ${f.name} (${sizeStr})</div>`;
-    }).join("");
+    el("filePreview").innerHTML = files
+      .map((f) => {
+        const sizeMB = (f.size / (1024 * 1024)).toFixed(2);
+        const sizeGB = (f.size / (1024 * 1024 * 1024)).toFixed(2);
+        const sizeStr =
+          f.size > 1024 * 1024 * 1024 ? `${sizeGB} GB` : `${sizeMB} MB`;
+        return `<div>📦 ${f.name} (${sizeStr})</div>`;
+      })
+      .join("");
   } else {
     el("filePreview").classList.add("hidden");
   }
@@ -364,7 +385,9 @@ function showFilePreview(files) {
 
 function validateSendButton() {
   const hasFile = currentFiles.length > 0;
-  const hasDevice = [...document.querySelectorAll(".device-check")].filter((cb) => cb.checked).length > 0;
+  const hasDevice =
+    [...document.querySelectorAll(".device-check")].filter((cb) => cb.checked)
+      .length > 0;
   el("sendBtn").disabled = !(hasFile && hasDevice);
 }
 
@@ -394,11 +417,12 @@ el("sendBtn").onclick = async () => {
     .map((cb) => cb.value);
 
   if (files.length === 0) return showPopup("Select a file or folder", false);
-  if (targets.length === 0) return showPopup("Select at least one device", false);
+  if (targets.length === 0)
+    return showPopup("Select at least one device", false);
 
   el("sendMsg").innerHTML = "";
   const statusArea = document.createElement("div");
-  
+
   targets.forEach((cid) => {
     const name = latestDevices.find((d) => d.clientId === cid)?.name || cid;
     const row = document.createElement("div");
@@ -412,16 +436,18 @@ el("sendBtn").onclick = async () => {
 
   // NEW: Request approval for each target
   for (const toClientId of targets) {
-    const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
+    const requestId = `req-${Date.now()}-${Math.random()
+      .toString(36)
+      .substr(2, 9)}`;
+
     // Store files for later sending
     pendingApprovals.set(requestId, { files, toClientId });
 
     // Send approval request
-    const fileInfo = files.map(f => ({
+    const fileInfo = files.map((f) => ({
       name: f.name,
       size: f.size,
-      type: f.type
+      type: f.type,
     }));
 
     const totalSize = files.reduce((sum, f) => sum + f.size, 0);
@@ -432,10 +458,12 @@ el("sendBtn").onclick = async () => {
       fromClientId: clientId,
       toClientId,
       files: fileInfo,
-      totalSize
+      totalSize,
     });
 
-    const statusTextEl = document.querySelector(`#status-${toClientId} .status-text`);
+    const statusTextEl = document.querySelector(
+      `#status-${toClientId} .status-text`
+    );
     if (statusTextEl) statusTextEl.textContent = "waiting for approval...";
   }
 };
@@ -444,11 +472,13 @@ el("sendBtn").onclick = async () => {
 socket.on("file-approved", async (data) => {
   const { requestId, approved, toClientId } = data;
   const pending = pendingApprovals.get(requestId);
-  
+
   if (!pending) return;
 
-  const statusTextEl = document.querySelector(`#status-${toClientId} .status-text`);
-  
+  const statusTextEl = document.querySelector(
+    `#status-${toClientId} .status-text`
+  );
+
   if (!approved) {
     if (statusTextEl) statusTextEl.textContent = "rejected ";
     showPopup("File transfer rejected", false);
@@ -515,10 +545,13 @@ socket.on("file-approved", async (data) => {
 // 🚀 OPTIMIZED: Speed calculation and better progress
 function uploadWithProgress(formData, toClientId) {
   return new Promise((resolve, reject) => {
+    formData.append("senderSocketId", socket.id);
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/upload");
     const bar = document.getElementById(`upload-bar-${toClientId}`);
-    const statusTextEl = document.querySelector(`#status-${toClientId} .status-text`);
+    const statusTextEl = document.querySelector(
+      `#status-${toClientId} .status-text`
+    );
     const speedEl = document.getElementById(`speed-${toClientId}`);
 
     let startTime = Date.now();
@@ -535,16 +568,19 @@ function uploadWithProgress(formData, toClientId) {
         const now = Date.now();
         const timeDiff = (now - lastTime) / 1000; // seconds
         const bytesDiff = e.loaded - lastLoaded;
-        
-        if (timeDiff > 0.5) { // Update every 500ms
-          const speedMBps = (bytesDiff / timeDiff) / (1024 * 1024);
+
+        if (timeDiff > 0.5) {
+          // Update every 500ms
+          const speedMBps = bytesDiff / timeDiff / (1024 * 1024);
           const remainingBytes = e.total - e.loaded;
           const etaSeconds = remainingBytes / (bytesDiff / timeDiff);
-          
+
           if (speedEl) {
-            speedEl.textContent = `${speedMBps.toFixed(2)} MB/s • ${pct}% • ETA: ${formatTime(etaSeconds)}`;
+            speedEl.textContent = `${speedMBps.toFixed(
+              2
+            )} MB/s • ${pct}% • ETA: ${formatTime(etaSeconds)}`;
           }
-          
+
           lastLoaded = e.loaded;
           lastTime = now;
         }
@@ -573,7 +609,8 @@ function uploadWithProgress(formData, toClientId) {
 
 function formatTime(seconds) {
   if (seconds < 60) return `${Math.round(seconds)}s`;
-  if (seconds < 3600) return `${Math.round(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+  if (seconds < 3600)
+    return `${Math.round(seconds / 60)}m ${Math.round(seconds % 60)}s`;
   return `${Math.round(seconds / 3600)}h ${Math.round((seconds % 3600) / 60)}m`;
 }
 
@@ -594,10 +631,10 @@ function updateProgressUIReceive(fileName, bytes, total) {
     `;
     box.prepend(div);
   }
-  
+
   const bar = document.getElementById("bar-" + fileName);
   const info = document.getElementById("recv-info-" + fileName);
-  
+
   if (total && total > 0) {
     const pct = Math.round((bytes / total) * 100);
     if (bar) bar.style.width = pct + "%";
@@ -617,11 +654,11 @@ function updateProgressUIReceive(fileName, bytes, total) {
 }
 
 socket.on("file-start", (data) => {
-  fileBuffers[data.name] = { 
-    chunks: [], 
-    receivedBytes: 0, 
+  fileBuffers[data.name] = {
+    chunks: [],
+    receivedBytes: 0,
     totalSize: data.totalSize || 0,
-    from: data.from 
+    from: data.from,
   };
   updateProgressUIReceive(data.name, 0, data.totalSize);
 });
@@ -639,11 +676,11 @@ socket.on("file-chunk", (data) => {
   }
 
   if (!fileBuffers[data.name]) {
-    fileBuffers[data.name] = { 
-      chunks: [], 
-      receivedBytes: 0, 
+    fileBuffers[data.name] = {
+      chunks: [],
+      receivedBytes: 0,
       totalSize: data.totalSize || 0,
-      from: data.from 
+      from: data.from,
     };
   }
 
@@ -651,6 +688,47 @@ socket.on("file-chunk", (data) => {
   fileBuffers[data.name].receivedBytes = data.receivedBytes;
 
   updateProgressUIReceive(data.name, data.receivedBytes, data.totalSize);
+});
+
+// ✅ NEW: Listen for transfer updates from server (for SENDER)
+socket.on("transfer-started", (data) => {
+  const statusTextEl = document.querySelector(
+    `#status-${data.toSocketId} .status-text`
+  );
+  if (statusTextEl) statusTextEl.textContent = "transferring...";
+});
+
+socket.on("transfer-progress", (data) => {
+  // Update sender's progress bar based on receiver's progress
+  const deviceId = latestDevices.find(
+    (d) => d.socketId === data.toSocketId
+  )?.clientId;
+  if (deviceId) {
+    const bar = document.getElementById(`upload-bar-${deviceId}`);
+    const speedEl = document.getElementById(`speed-${deviceId}`);
+
+    if (bar) {
+      bar.style.width = data.progress + "%";
+    }
+
+    if (speedEl) {
+      const sentMB = (data.sentBytes / (1024 * 1024)).toFixed(2);
+      const totalMB = (data.totalSize / (1024 * 1024)).toFixed(2);
+      speedEl.textContent = `${data.progress}% • ${sentMB}/${totalMB} MB`;
+    }
+  }
+});
+
+socket.on("transfer-complete", (data) => {
+  const deviceId = latestDevices.find(
+    (d) => d.socketId === data.toSocketId
+  )?.clientId;
+  if (deviceId) {
+    const statusTextEl = document.querySelector(
+      `#status-${deviceId} .status-text`
+    );
+    if (statusTextEl) statusTextEl.textContent = "sent ✓";
+  }
 });
 
 socket.on("file-complete", (data) => {
@@ -668,7 +746,7 @@ socket.on("file-complete", (data) => {
 
   delete fileBuffers[data.name];
   showPopup(`Downloaded ${data.name} ✓`);
-  
+
   // Clean up UI
   const card = document.getElementById("card-" + data.name);
   if (card) {
@@ -684,17 +762,21 @@ socket.on("file-approval-request", (data) => {
   const totalSize = el("approvalTotalSize");
 
   sender.textContent = `From: ${data.fromName}`;
-  
-  fileList.innerHTML = data.files.map(f => {
-    const sizeMB = (f.size / (1024 * 1024)).toFixed(2);
-    const sizeGB = (f.size / (1024 * 1024 * 1024)).toFixed(2);
-    const sizeStr = f.size > 1024 * 1024 * 1024 ? `${sizeGB} GB` : `${sizeMB} MB`;
-    return `<div class="approval-file-item">📄 ${f.name} (${sizeStr})</div>`;
-  }).join("");
+
+  fileList.innerHTML = data.files
+    .map((f) => {
+      const sizeMB = (f.size / (1024 * 1024)).toFixed(2);
+      const sizeGB = (f.size / (1024 * 1024 * 1024)).toFixed(2);
+      const sizeStr =
+        f.size > 1024 * 1024 * 1024 ? `${sizeGB} GB` : `${sizeMB} MB`;
+      return `<div class="approval-file-item">📄 ${f.name} (${sizeStr})</div>`;
+    })
+    .join("");
 
   const totalMB = (data.totalSize / (1024 * 1024)).toFixed(2);
   const totalGB = (data.totalSize / (1024 * 1024 * 1024)).toFixed(2);
-  const totalStr = data.totalSize > 1024 * 1024 * 1024 ? `${totalGB} GB` : `${totalMB} MB`;
+  const totalStr =
+    data.totalSize > 1024 * 1024 * 1024 ? `${totalGB} GB` : `${totalMB} MB`;
   totalSize.textContent = `Total size: ${totalStr}`;
 
   modal.classList.remove("hidden");
@@ -705,7 +787,7 @@ socket.on("file-approval-request", (data) => {
       requestId: data.requestId,
       approved: true,
       fromClientId: data.fromClientId,
-      toClientId: clientId
+      toClientId: clientId,
     });
     modal.classList.add("hidden");
     showPopup("File transfer accepted ");
@@ -717,7 +799,7 @@ socket.on("file-approval-request", (data) => {
       requestId: data.requestId,
       approved: false,
       fromClientId: data.fromClientId,
-      toClientId: clientId
+      toClientId: clientId,
     });
     modal.classList.add("hidden");
     showPopup("File transfer rejected ", false);
@@ -750,31 +832,35 @@ const CLEANUP_INTERVAL = 60 * 1000; // Check every minute
 function updateChatOnlineUsers(devices) {
   // Update dropdown
   chatUserSelect.innerHTML = '<option value="">Select a user...</option>';
-  
+
   // Update badges
-  onlineUsersList.innerHTML = '';
-  
-  devices.forEach(d => {
+  onlineUsersList.innerHTML = "";
+
+  devices.forEach((d) => {
     if (d.clientId === clientId) return; // Skip self
-    
+
     // Add to dropdown
-    const option = document.createElement('option');
+    const option = document.createElement("option");
     option.value = d.clientId;
     option.textContent = d.name;
     chatUserSelect.appendChild(option);
-    
+
     // Add badge
-    const badge = document.createElement('div');
-    badge.className = 'online-user-badge';
+    const badge = document.createElement("div");
+    badge.className = "online-user-badge";
     badge.innerHTML = `<span class="online-dot"></span>${d.name}`;
     onlineUsersList.appendChild(badge);
   });
-  
+
   // If current partner is offline, notify
   if (currentChatPartner) {
-    const partnerOnline = devices.find(d => d.clientId === currentChatPartner);
+    const partnerOnline = devices.find(
+      (d) => d.clientId === currentChatPartner
+    );
     if (!partnerOnline) {
-      addSystemMessage("User went offline. Chat room still active for 3 hours.");
+      addSystemMessage(
+        "User went offline. Chat room still active for 3 hours."
+      );
     }
   }
 }
@@ -784,7 +870,7 @@ socket.on("devices", (list) => {
   // ... existing code stays ...
   latestDevices = list;
   // ... rest of existing device code ...
-  
+
   // NEW: Update chat users
   updateChatOnlineUsers(list);
 });
@@ -793,27 +879,44 @@ socket.on("devices", (list) => {
 chatUserSelect.onchange = () => {
   const selectedUserId = chatUserSelect.value;
   if (!selectedUserId) return;
-  
-  const selectedUser = latestDevices.find(d => d.clientId === selectedUserId);
+
+  const selectedUser = latestDevices.find((d) => d.clientId === selectedUserId);
   if (!selectedUser) return;
-  
+
   // Generate deterministic room ID (alphabetically sorted to match both users)
   const users = [clientId, selectedUserId].sort();
   chatRoomId = `room_${users[0]}_${users[1]}`;
   currentChatPartner = selectedUserId;
-  
+
   // Enable chat
   chatInput.disabled = false;
   chatSendBtn.disabled = false;
-  
+
   // Join room
   socket.emit("join-chat-room", { roomId: chatRoomId, userName: myName });
-  
-  // Clear and show welcome
-  chatMessages = [];
-  renderChatMessages();
-  addSystemMessage(`🔒 Secure chat with ${selectedUser.name}. Messages expire in 3 hours.`);
-  
+
+  // Enable chat
+  chatInput.disabled = false;
+  chatSendBtn.disabled = false;
+
+  // Join room
+  socket.emit("join-chat-room", { roomId: chatRoomId, userName: myName });
+
+  // ✅ NEW: Try to load from localStorage first
+  const loadedFromStorage = loadChatFromStorage();
+
+  if (loadedFromStorage) {
+    renderChatMessages();
+    addSystemMessage(`📜 Restored previous chat with ${selectedUser.name}`);
+  } else {
+    // Clear and show welcome
+    chatMessages = [];
+    renderChatMessages();
+    addSystemMessage(
+      `🔒 Secure chat with ${selectedUser.name}. Messages expire in 3 hours.`
+    );
+  }
+
   showPopup(`Chat started with ${selectedUser.name}`);
 };
 
@@ -821,7 +924,7 @@ chatUserSelect.onchange = () => {
 function sendChatMessage() {
   const text = chatInput.value.trim();
   if (!text || !currentChatPartner || !chatRoomId) return;
-  
+
   const message = {
     id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
     from: clientId,
@@ -830,24 +933,24 @@ function sendChatMessage() {
     text: text,
     timestamp: Date.now(),
     expiresAt: Date.now() + CHAT_EXPIRY_MS,
-    roomId: chatRoomId
+    roomId: chatRoomId,
   };
-  
+
   // Send to server
   socket.emit("chat-message", message);
-  
+
   // Add to local messages
   chatMessages.push(message);
   renderChatMessages();
-  
+
   // Clear input
-  chatInput.value = '';
+  chatInput.value = "";
   chatInput.focus();
 }
 
 chatSendBtn.onclick = sendChatMessage;
 chatInput.onkeypress = (e) => {
-  if (e.key === 'Enter') sendChatMessage();
+  if (e.key === "Enter") sendChatMessage();
 };
 
 /* -------------------- RECEIVE CHAT HISTORY (when joining) -------------------- */
@@ -866,13 +969,52 @@ socket.on("chat-message", (message) => {
   if (message.roomId === chatRoomId) {
     chatMessages.push(message);
     renderChatMessages();
-    
+    saveChatToStorage();
+
     // Play notification sound (optional)
     if (message.from !== clientId) {
       playNotificationSound();
     }
   }
 });
+
+// ✅ NEW: Save messages to localStorage
+function saveChatToStorage() {
+  if (chatRoomId && chatMessages.length > 0) {
+    const chatData = {
+      roomId: chatRoomId,
+      partnerId: currentChatPartner,
+      messages: chatMessages,
+      savedAt: Date.now(),
+    };
+    localStorage.setItem(`chat_${chatRoomId}`, JSON.stringify(chatData));
+  }
+}
+
+// ✅ NEW: Load messages from localStorage
+function loadChatFromStorage() {
+  if (!chatRoomId) return false;
+
+  try {
+    const stored = localStorage.getItem(`chat_${chatRoomId}`);
+    if (stored) {
+      const chatData = JSON.parse(stored);
+
+      // Only load if less than 3 hours old
+      const age = Date.now() - chatData.savedAt;
+      if (age < CHAT_EXPIRY_MS) {
+        chatMessages = chatData.messages;
+        return true;
+      } else {
+        // Clear expired
+        localStorage.removeItem(`chat_${chatRoomId}`);
+      }
+    }
+  } catch (e) {
+    console.error("Failed to load chat:", e);
+  }
+  return false;
+}
 
 /* -------------------- RENDER MESSAGES -------------------- */
 function renderChatMessages() {
@@ -888,38 +1030,38 @@ function renderChatMessages() {
     `;
     return;
   }
-  
-  chatMessages_el.innerHTML = '';
-  
-  chatMessages.forEach(msg => {
+
+  chatMessages_el.innerHTML = "";
+
+  chatMessages.forEach((msg) => {
     const isOwn = msg.from === clientId;
     const timeLeft = msg.expiresAt - Date.now();
     const hoursLeft = Math.floor(timeLeft / (1000 * 60 * 60));
     const minutesLeft = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
-    
-    const messageEl = document.createElement('div');
-    messageEl.className = `chat-message ${isOwn ? 'own' : 'other'}`;
-    
+
+    const messageEl = document.createElement("div");
+    messageEl.className = `chat-message ${isOwn ? "own" : "other"}`;
+
     messageEl.innerHTML = `
-      ${!isOwn ? `<div class="message-sender">${msg.fromName}</div>` : ''}
+      ${!isOwn ? `<div class="message-sender">${msg.fromName}</div>` : ""}
       <div class="message-bubble">
         ${escapeHtml(msg.text)}
         <div class="message-time">${formatTimestamp(msg.timestamp)}</div>
         <div class="message-destructs-in"> ${hoursLeft}h ${minutesLeft}m left</div>
       </div>
     `;
-    
+
     chatMessages_el.appendChild(messageEl);
   });
-  
+
   // Auto-scroll to bottom
   chatMessages_el.scrollTop = chatMessages_el.scrollHeight;
 }
 
 /* -------------------- SYSTEM MESSAGES -------------------- */
 function addSystemMessage(text) {
-  const systemMsg = document.createElement('div');
-  systemMsg.className = 'system-message';
+  const systemMsg = document.createElement("div");
+  systemMsg.className = "system-message";
   systemMsg.textContent = text;
   chatMessages_el.appendChild(systemMsg);
   chatMessages_el.scrollTop = chatMessages_el.scrollHeight;
@@ -931,16 +1073,17 @@ burnChatBtn.onclick = () => {
     showPopup("No active chat to burn", false);
     return;
   }
-  
+
   if (confirm(" BURN ALL MESSAGES? This cannot be undone!")) {
     // Emit burn event to all room members
     socket.emit("burn-chat", { roomId: chatRoomId });
-    
+
     // Clear locally
     chatMessages = [];
     renderChatMessages();
+    if (chatRoomId) localStorage.removeItem(`chat_${chatRoomId}`);
     addSystemMessage(" All messages burned!");
-    
+
     showPopup("Chat burned! ");
   }
 };
@@ -961,18 +1104,20 @@ leaveChatBtn.onclick = () => {
     showPopup("No active chat", false);
     return;
   }
-  
+
   // Notify room
   socket.emit("leave-chat-room", { roomId: chatRoomId, userName: myName });
-  
+
   // Reset state
   currentChatPartner = null;
+  const oldRoomId = chatRoomId; // ✅ FIX: Save roomId before clearing
   chatRoomId = null;
   chatMessages = [];
-  chatUserSelect.value = '';
+  if (oldRoomId) localStorage.removeItem(`chat_${oldRoomId}`); // ✅ FIX: Now oldRoomId is defined
+  chatUserSelect.value = "";
   chatInput.disabled = true;
   chatSendBtn.disabled = true;
-  
+
   renderChatMessages();
   showPopup("Left chat room");
 };
@@ -980,7 +1125,9 @@ leaveChatBtn.onclick = () => {
 // Receive leave notification
 socket.on("user-left-chat", (data) => {
   if (data.roomId === chatRoomId) {
-    addSystemMessage(`${data.userName} left the chat. Room stays active for 3 hours.`);
+    addSystemMessage(
+      `${data.userName} left the chat. Room stays active for 3 hours.`
+    );
   }
 });
 
@@ -995,17 +1142,17 @@ socket.on("user-joined-chat", (data) => {
 setInterval(() => {
   const now = Date.now();
   const before = chatMessages.length;
-  
+
   // Remove expired messages
-  chatMessages = chatMessages.filter(msg => msg.expiresAt > now);
-  
+  chatMessages = chatMessages.filter((msg) => msg.expiresAt > now);
+
   if (chatMessages.length < before) {
     renderChatMessages();
     if (chatMessages.length === 0 && currentChatPartner) {
       addSystemMessage("🕒 All messages expired (3 hours passed)");
     }
   }
-  
+
   // Update destructs-in timers
   if (chatMessages.length > 0) {
     renderChatMessages();
@@ -1015,20 +1162,22 @@ setInterval(() => {
 /* -------------------- HELPER FUNCTIONS -------------------- */
 function formatTimestamp(ts) {
   const date = new Date(ts);
-  const hours = date.getHours().toString().padStart(2, '0');
-  const minutes = date.getMinutes().toString().padStart(2, '0');
+  const hours = date.getHours().toString().padStart(2, "0");
+  const minutes = date.getMinutes().toString().padStart(2, "0");
   return `${hours}:${minutes}`;
 }
 
 function escapeHtml(text) {
-  const div = document.createElement('div');
+  const div = document.createElement("div");
   div.textContent = text;
   return div.innerHTML;
 }
 
 function playNotificationSound() {
   // Optional: play a subtle notification sound
-  const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZizMIGGW56+qeSwkOVKzn7aRVFQxNqOTxtWomBS51xvDdkT4KFlm05OunTQ8QSKPp7bhiHwc3jsLx1YIyCAhjuOrrrlQMEmqy6OqiSQ0HGmW5/O+iTgoUW7Xk66RVFQxOnebxt2snBTBxxfHdkT4IFVi05uunTQ8QSKPp7bhiHwc3jsLx1YIyCAhjuOrrrlQMEmqy6OqiSQ0HGmW5/O+iTgoUW7Xk66RVFQxOnebxt2snBTBxxfHdkT4KE2S56u2bUQwQTarh8K1hGAQ3jcXy1YEyBwdkuevqnlENDlyy5eykTxILXb3k66lSEg5apd7xtmciBS52xPLdkDwIFl205uyoTg8PVKzn7aFVFApGn+DyvmwhBSuBzvLZizMIGGW56+qeSQsOW7Tl7aRXEwxPo+furWEbBC53xfHdkj4KFVu05O2nTg0QVKvn7KRVFQxNqOLxt2wmBCx3xfHekj4KFVm04OqnTg0QVKvn7KRVFQxNqOLxt2wmBCx3xfHekj4KFVm04OqnTg0QVKvn7KRVFQxNqOLxt2wmBCx3xfHekj4KFVm04OqnTg0QVKvn7KRVFQxNqOLxt2wmBCx3xfHekj4KFVm04OqnTg0QVKvn7KRVFQxNqOLxt2wmBCx3xfHekj4KFVm04OqnTg0QVKvn7KRVFQxNqOLxt2wmBCx3xfHekj4KFVm04OqnTg0QVKvn7KRVFQxNqOLxt2wmBCx3xfHekj4KFVm04OqnTg0QVKvn7KRVFQxNqOLxt2wmBCx3xfHekj4K');
+  const audio = new Audio(
+    "data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZizMIGGW56+qeSwkOVKzn7aRVFQxNqOTxtWomBS51xvDdkT4KFlm05OunTQ8QSKPp7bhiHwc3jsLx1YIyCAhjuOrrrlQMEmqy6OqiSQ0HGmW5/O+iTgoUW7Xk66RVFQxOnebxt2snBTBxxfHdkT4IFVi05uunTQ8QSKPp7bhiHwc3jsLx1YIyCAhjuOrrrlQMEmqy6OqiSQ0HGmW5/O+iTgoUW7Xk66RVFQxOnebxt2snBTBxxfHdkT4KE2S56u2bUQwQTarh8K1hGAQ3jcXy1YEyBwdkuevqnlENDlyy5eykTxILXb3k66lSEg5apd7xtmciBS52xPLdkDwIFl205uyoTg8PVKzn7aFVFApGn+DyvmwhBSuBzvLZizMIGGW56+qeSQsOW7Tl7aRXEwxPo+furWEbBC53xfHdkj4KFVu05O2nTg0QVKvn7KRVFQxNqOLxt2wmBCx3xfHekj4KFVm04OqnTg0QVKvn7KRVFQxNqOLxt2wmBCx3xfHekj4KFVm04OqnTg0QVKvn7KRVFQxNqOLxt2wmBCx3xfHekj4KFVm04OqnTg0QVKvn7KRVFQxNqOLxt2wmBCx3xfHekj4KFVm04OqnTg0QVKvn7KRVFQxNqOLxt2wmBCx3xfHekj4KFVm04OqnTg0QVKvn7KRVFQxNqOLxt2wmBCx3xfHekj4KFVm04OqnTg0QVKvn7KRVFQxNqOLxt2wmBCx3xfHekj4KFVm04OqnTg0QVKvn7KRVFQxNqOLxt2wmBCx3xfHekj4K"
+  );
   audio.volume = 0.3;
   audio.play().catch(() => {}); // Silent fail if blocked
 }
