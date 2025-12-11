@@ -14,60 +14,82 @@ const app = express();
 const server = http.createServer(app);
 
 // 🔒 SECURITY: Helmet for HTTP headers protection
-app.use(helmet({
-  contentSecurityPolicy: false, // Allow socket.io
-  crossOriginEmbedderPolicy: false
-}));
+app.use(
+  helmet({
+    contentSecurityPolicy: false, // Allow socket.io
+    crossOriginEmbedderPolicy: false,
+  })
+);
 
 // 🔒 SECURITY: Rate limiting (prevent spam/abuse)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // Max 100 requests per 15 min
-  message: 'Too many requests, please try again later.'
+  message: "Too many requests, please try again later.",
 });
-app.use('/upload', limiter);
+app.use("/upload", limiter);
 
 // 🔒 SECURITY: File upload rate limit (stricter)
 const uploadLimiter = rateLimit({
   windowMs: 5 * 60 * 1000, // 5 minutes
   max: 20, // Max 20 uploads per 5 min
-  message: 'Too many file uploads, please slow down.'
+  message: "Too many file uploads, please slow down.",
 });
 
 const io = new SocketServer(server, {
   cors: {
     origin: process.env.ALLOWED_ORIGINS || "*",
-    methods: ["GET", "POST"]
+    methods: ["GET", "POST"],
   },
   maxHttpBufferSize: 1e8,
   pingTimeout: 60000,
   pingInterval: 25000,
-  transports: ['websocket', 'polling'],
+  transports: ["websocket", "polling"],
   upgradeTimeout: 30000,
-  allowEIO3: true
+  allowEIO3: true,
 });
 
-app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS || "*",
-  methods: ['GET', 'POST'],
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: process.env.ALLOWED_ORIGINS || "*",
+    methods: ["GET", "POST"],
+    credentials: true,
+  })
+);
 
-app.use(express.json({ limit: '100mb' }));
-app.use(express.urlencoded({ limit: '100mb', extended: true }));
+app.use(express.json({ limit: "100mb" }));
+app.use(express.urlencoded({ limit: "100mb", extended: true }));
 app.use(express.static("public"));
-app.use('/media', express.static("media"));
+app.use("/media", express.static("media"));
 
 // 🔒 SECURITY: Validate file types (block dangerous files)
-const BLOCKED_EXTENSIONS = ['.exe', '.bat', '.cmd', '.sh', '.dll', '.scr', '.vbs', '.js', '.msi'];
+const BLOCKED_EXTENSIONS = [
+  ".exe",
+  ".bat",
+  ".cmd",
+  ".sh",
+  ".dll",
+  ".scr",
+  ".vbs",
+  ".js",
+  ".msi",
+];
 const ALLOWED_MIME_TYPES = [
-  'image/', 'video/', 'audio/', 'application/pdf', 'application/zip',
-  'application/x-zip-compressed', 'application/msword', 'application/vnd.',
-  'text/', 'application/json', 'application/xml'
+  "image/",
+  "video/",
+  "audio/",
+  "application/pdf",
+  "application/zip",
+  "application/x-zip-compressed",
+  "application/msword",
+  "application/vnd.",
+  "text/",
+  "application/json",
+  "application/xml",
 ];
 
 function isFileAllowed(filename, mimetype) {
-  const ext = filename.toLowerCase().substring(filename.lastIndexOf('.'));
+  const ext = filename.toLowerCase().substring(filename.lastIndexOf("."));
 
   // Block dangerous extensions
   if (BLOCKED_EXTENSIONS.includes(ext)) {
@@ -75,22 +97,22 @@ function isFileAllowed(filename, mimetype) {
   }
 
   // Allow common safe types
-  return ALLOWED_MIME_TYPES.some(type => mimetype.startsWith(type));
+  return ALLOWED_MIME_TYPES.some((type) => mimetype.startsWith(type));
 }
 
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: 10 * 1024 * 1024 * 1024, // 10GB
-    files: 10
+    files: 10,
   },
   fileFilter: (req, file, cb) => {
     // 🔒 SECURITY: File validation
     if (!isFileAllowed(file.originalname, file.mimetype)) {
-      return cb(new Error('File type not allowed for security reasons'));
+      return cb(new Error("File type not allowed for security reasons"));
     }
     cb(null, true);
-  }
+  },
 });
 
 const devices = new Map();
@@ -102,7 +124,7 @@ function checkConnectionLimit(socketId) {
   const attempts = connectionAttempts.get(socketId) || [];
 
   // Remove old attempts (older than 1 minute)
-  const recentAttempts = attempts.filter(time => now - time < 60000);
+  const recentAttempts = attempts.filter((time) => now - time < 60000);
 
   if (recentAttempts.length >= 10) {
     return false; // Too many connections
@@ -125,7 +147,7 @@ const chatRooms = new Map();
 io.on("connection", (socket) => {
   // 🔒 SECURITY: Check connection rate
   if (!checkConnectionLimit(socket.id)) {
-    console.log('⚠️ Connection rejected: Too many attempts from', socket.id);
+    console.log("⚠️ Connection rejected: Too many attempts from", socket.id);
     socket.disconnect();
     return;
   }
@@ -134,23 +156,23 @@ io.on("connection", (socket) => {
 
   socket.on("register", ({ name, clientId }) => {
     // 🔒 SECURITY: Validate input
-    if (!name || typeof name !== 'string' || name.length > 50) {
-      socket.emit('error', 'Invalid device name');
+    if (!name || typeof name !== "string" || name.length > 50) {
+      socket.emit("error", "Invalid device name");
       return;
     }
 
-    if (!clientId || typeof clientId !== 'string' || clientId.length > 100) {
-      socket.emit('error', 'Invalid client ID');
+    if (!clientId || typeof clientId !== "string" || clientId.length > 100) {
+      socket.emit("error", "Invalid client ID");
       return;
     }
 
     // 🔒 SECURITY: Sanitize name (prevent XSS)
-    const sanitizedName = name.replace(/[<>]/g, '').trim();
+    const sanitizedName = name.replace(/[<>]/g, "").trim();
 
     devices.set(socket.id, {
       name: sanitizedName || "Unknown",
       clientId: clientId,
-      connectedAt: Date.now()
+      connectedAt: Date.now(),
     });
 
     io.emit("devices", getDevices());
@@ -158,10 +180,19 @@ io.on("connection", (socket) => {
     if (clientId) {
       const queued = pendingQueue.get(clientId);
       if (queued && queued.length > 0) {
-        console.log(`📦 Delivering ${queued.length} queued file(s) to ${clientId}`);
+        console.log(
+          `📦 Delivering ${queued.length} queued file(s) to ${clientId}`
+        );
         queued.forEach((item) => {
-          const buffer = Buffer.from(item.fileBufferBase64, 'base64');
-          streamFileToSocket(socket.id, item.fileName, item.fileType, item.from, buffer);
+          const buffer = Buffer.from(item.fileBufferBase64, "base64");
+          streamFileToSocket(
+            socket.id,
+            item.fileName,
+            item.fileType,
+            item.from,
+            null,
+            buffer
+          );
         });
         pendingQueue.delete(clientId);
       }
@@ -180,12 +211,11 @@ io.on("connection", (socket) => {
   // Store active chat rooms (in RAM only)
   // const chatRooms = new Map(); // roomId -> {messages: [], createdAt, members: Set}
 
-
   // Join chat room
   socket.on("join-chat-room", (data) => {
     const { roomId, userName } = data;
 
-    if (!roomId || typeof roomId !== 'string') return;
+    if (!roomId || typeof roomId !== "string") return;
 
     socket.join(roomId);
 
@@ -194,7 +224,7 @@ io.on("connection", (socket) => {
       chatRooms.set(roomId, {
         messages: [],
         createdAt: Date.now(),
-        members: new Set()
+        members: new Set(),
       });
     }
 
@@ -205,7 +235,7 @@ io.on("connection", (socket) => {
     if (room.messages.length > 0) {
       socket.emit("chat-history", {
         roomId,
-        messages: room.messages
+        messages: room.messages,
       });
     }
 
@@ -213,7 +243,7 @@ io.on("connection", (socket) => {
     socket.to(roomId).emit("user-joined-chat", {
       roomId,
       userName: userName || "Unknown",
-      timestamp: Date.now()
+      timestamp: Date.now(),
     });
 
     console.log(`📨 ${userName} joined chat room: ${roomId}`);
@@ -224,20 +254,24 @@ io.on("connection", (socket) => {
     if (!message.roomId) return;
 
     // 🔒 SECURITY: Validate message
-    if (!message.text || typeof message.text !== 'string' || message.text.length > 5000) {
-      socket.emit('error', 'Invalid message');
+    if (
+      !message.text ||
+      typeof message.text !== "string" ||
+      message.text.length > 5000
+    ) {
+      socket.emit("error", "Invalid message");
       return;
     }
 
     // 🔒 SECURITY: Sanitize text (prevent XSS)
-    message.text = message.text.replace(/[<>]/g, '');
+    message.text = message.text.replace(/[<>]/g, "");
 
     const room = chatRooms.get(message.roomId);
     if (room) {
       // Store in RAM with expiry
       room.messages.push({
         ...message,
-        expiresAt: Date.now() + (3 * 60 * 60 * 1000) // 3 hours
+        expiresAt: Date.now() + 3 * 60 * 60 * 1000, // 3 hours
       });
 
       // Broadcast to room (including sender for confirmation)
@@ -276,7 +310,7 @@ io.on("connection", (socket) => {
       io.to(roomId).emit("user-left-chat", {
         roomId,
         userName: userName || "Unknown",
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
 
       console.log(`👋 ${userName} left chat room: ${roomId}`);
@@ -294,7 +328,7 @@ io.on("connection", (socket) => {
         io.to(roomId).emit("user-left-chat", {
           roomId,
           userName: deviceInfo?.name || "Unknown",
-          timestamp: Date.now()
+          timestamp: Date.now(),
         });
       }
     }
@@ -309,7 +343,7 @@ io.on("connection", (socket) => {
         fromName: data.fromName,
         fromClientId: data.fromClientId,
         files: data.files,
-        totalSize: data.totalSize
+        totalSize: data.totalSize,
       });
     }
   });
@@ -321,7 +355,7 @@ io.on("connection", (socket) => {
       io.to(senderSocket).emit("file-approved", {
         requestId: data.requestId,
         approved: data.approved,
-        toClientId: data.toClientId
+        toClientId: data.toClientId,
       });
     }
   });
@@ -331,31 +365,57 @@ function getDevices() {
   return [...devices.entries()].map(([socketId, data]) => ({
     socketId,
     clientId: data.clientId,
-    name: data.name
+    name: data.name,
   }));
 }
 
-function streamFileToSocket(socketId, fileName, fileType, fromName, buffer) {
+function streamFileToSocket(
+  socketId,
+  fileName,
+  fileType,
+  fromName,
+  fromSocketId,
+  buffer
+) {
   let bytesSent = 0;
   const CHUNK_SIZE = 512 * 1024;
   const totalSize = buffer.length;
+
+  // ✅ NEW: Notify SENDER that transfer started
+  io.to(fromSocketId).emit("transfer-started", {
+    name: fileName,
+    totalSize: totalSize,
+    toSocketId: socketId,
+  });
 
   io.to(socketId).emit("file-start", {
     name: fileName,
     type: fileType,
     from: fromName,
-    totalSize: totalSize
+    totalSize: totalSize,
   });
 
   let offset = 0;
+  let lastProgressUpdate = Date.now();
 
   const sendNextChunk = () => {
     if (offset >= totalSize) {
       io.to(socketId).emit("file-complete", {
         name: fileName,
-        from: fromName
+        from: fromName,
       });
-      console.log(`Transfer complete: ${fileName} (${(totalSize / 1024 / 1024).toFixed(2)} MB)`);
+
+      // ✅ NEW: Notify SENDER that transfer completed
+      io.to(fromSocketId).emit("transfer-complete", {
+        name: fileName,
+        toSocketId: socketId,
+      });
+
+      console.log(
+        `Transfer complete: ${fileName} (${(totalSize / 1024 / 1024).toFixed(
+          2
+        )} MB)`
+      );
       return;
     }
 
@@ -369,8 +429,22 @@ function streamFileToSocket(socketId, fileName, fileType, fromName, buffer) {
       from: fromName,
       chunk: Array.from(chunk),
       receivedBytes: bytesSent,
-      totalSize: totalSize
+      totalSize: totalSize,
     });
+
+    // ✅ NEW: Send progress updates to SENDER (every 500ms)
+    const now = Date.now();
+    if (now - lastProgressUpdate > 500) {
+      const progress = Math.round((bytesSent / totalSize) * 100);
+      io.to(fromSocketId).emit("transfer-progress", {
+        name: fileName,
+        progress: progress,
+        sentBytes: bytesSent,
+        totalSize: totalSize,
+        toSocketId: socketId,
+      });
+      lastProgressUpdate = now;
+    }
 
     setImmediate(sendNextChunk);
   };
@@ -380,6 +454,7 @@ function streamFileToSocket(socketId, fileName, fileType, fromName, buffer) {
 
 // 🔒 SECURITY: Apply upload rate limiter
 app.post("/upload", uploadLimiter, upload.array("file"), (req, res) => {
+  const senderSocketId = req.body.senderSocketId || null;
   const files = req.files;
   const toClientId = req.body.toClientId || null;
   const toSocketIdFallback = req.body.toSocketId || null;
@@ -394,14 +469,15 @@ app.post("/upload", uploadLimiter, upload.array("file"), (req, res) => {
   const totalSize = files.reduce((sum, f) => sum + f.size, 0);
   const MAX_SIZE = 10 * 1024 * 1024 * 1024;
   if (totalSize > MAX_SIZE) {
-    console.log('⚠️ Upload rejected: Size exceeds limit');
+    console.log("⚠️ Upload rejected: Size exceeds limit");
     return res.status(400).json({
       error: "Total size exceeds 10GB limit",
       size: totalSize,
-      limit: MAX_SIZE
+      limit: MAX_SIZE,
     });
   }
 
+  // ✅ FIX: Define targetSocketId and targetClientId FIRST
   let targetSocketId = null;
   let targetClientId = null;
 
@@ -420,23 +496,36 @@ app.post("/upload", uploadLimiter, upload.array("file"), (req, res) => {
 
   // NEW: Only send if approved
   if (targetSocketId && approved) {
-    console.log(`📤 Sending ${files.length} file(s) from ${fromName} to ${targetClientId}`);
+    console.log(
+      `📤 Sending ${files.length} file(s) from ${fromName} to ${targetClientId}`
+    );
 
     files.forEach((file) => {
-      streamFileToSocket(targetSocketId, file.originalname, file.mimetype, fromName, file.buffer);
-      results.push({ name: file.originalname, status: "sent", size: file.size });
+      streamFileToSocket(
+        targetSocketId,
+        file.originalname,
+        file.mimetype,
+        fromName,
+        senderSocketId,
+        file.buffer
+      );
+      results.push({
+        name: file.originalname,
+        status: "sent",
+        size: file.size,
+      });
     });
 
     return res.json({
       message: "ok",
       toClientId: targetClientId,
-      delivered: results
+      delivered: results,
     });
   } else if (!approved) {
     // NEW: Return success for approval request
     return res.json({
       message: "approval_requested",
-      toClientId: targetClientId
+      toClientId: targetClientId,
     });
   } else {
     if (!targetClientId) {
@@ -446,27 +535,35 @@ app.post("/upload", uploadLimiter, upload.array("file"), (req, res) => {
     // 🔒 SECURITY: Limit queue size per client
     const queue = pendingQueue.get(targetClientId) || [];
     if (queue.length >= 50) {
-      return res.status(400).json({ error: "Queue full, recipient must come online" });
+      return res
+        .status(400)
+        .json({ error: "Queue full, recipient must come online" });
     }
 
-    console.log(`📥 Queueing ${files.length} file(s) for offline device ${targetClientId}`);
+    console.log(
+      `📥 Queueing ${files.length} file(s) for offline device ${targetClientId}`
+    );
 
     files.forEach((file) => {
       queue.push({
         fileName: file.originalname,
         fileType: file.mimetype,
-        fileBufferBase64: file.buffer.toString('base64'),
+        fileBufferBase64: file.buffer.toString("base64"),
         from: fromName,
-        queuedAt: Date.now()
+        queuedAt: Date.now(),
       });
-      results.push({ name: file.originalname, status: "queued", size: file.size });
+      results.push({
+        name: file.originalname,
+        status: "queued",
+        size: file.size,
+      });
     });
     pendingQueue.set(targetClientId, queue);
 
     return res.json({
       message: "ok",
       toClientId: targetClientId,
-      delivered: results
+      delivered: results,
     });
   }
 });
@@ -477,7 +574,7 @@ setInterval(() => {
   const ONE_HOUR = 60 * 60 * 1000;
 
   for (const [clientId, queue] of pendingQueue.entries()) {
-    const filtered = queue.filter(item => now - item.queuedAt < ONE_HOUR);
+    const filtered = queue.filter((item) => now - item.queuedAt < ONE_HOUR);
     if (filtered.length === 0) {
       pendingQueue.delete(clientId);
     } else {
@@ -486,11 +583,13 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000);
 
-app.get("/health", (_, res) => res.json({
-  ok: true,
-  timestamp: new Date().toISOString(),
-  connectedDevices: devices.size
-}));
+app.get("/health", (_, res) =>
+  res.json({
+    ok: true,
+    timestamp: new Date().toISOString(),
+    connectedDevices: devices.size,
+  })
+);
 
 /* ========================================
    AUTO-CLEANUP EXPIRED CHAT MESSAGES (3 HOURS)
@@ -504,14 +603,18 @@ setInterval(() => {
     const before = room.messages.length;
 
     // Remove expired messages
-    room.messages = room.messages.filter(msg => msg.expiresAt > now);
+    room.messages = room.messages.filter((msg) => msg.expiresAt > now);
 
     // Remove empty rooms older than 3 hours
-    if (room.messages.length === 0 && (now - room.createdAt) > EXPIRY_MS) {
+    if (room.messages.length === 0 && now - room.createdAt > EXPIRY_MS) {
       chatRooms.delete(roomId);
       console.log(`🗑️  Deleted expired chat room: ${roomId}`);
     } else if (room.messages.length < before) {
-      console.log(`🧹 Cleaned ${before - room.messages.length} expired messages from ${roomId}`);
+      console.log(
+        `🧹 Cleaned ${
+          before - room.messages.length
+        } expired messages from ${roomId}`
+      );
     }
   }
 }, 60 * 1000); // Run every minute
@@ -523,7 +626,7 @@ function getLocalIPs() {
 
   for (const name of Object.keys(interfaces)) {
     for (const iface of interfaces[name]) {
-      if (iface.family === 'IPv4' && !iface.internal) {
+      if (iface.family === "IPv4" && !iface.internal) {
         addresses.push(iface.address);
       }
     }
@@ -532,31 +635,31 @@ function getLocalIPs() {
 }
 
 const PORT = process.env.PORT || 3000;
-const HOST = '0.0.0.0'; // Listen on all interfaces
+const HOST = "0.0.0.0"; // Listen on all interfaces
 
 server.listen(PORT, HOST, () => {
-  console.log('   OyeSwap Server Beast mode ON');
+  console.log("   OyeSwap Server Beast mode ON");
 
   const localIPs = getLocalIPs();
 
   if (localIPs.length > 0) {
-    console.log('📱 Access from ANY device on same WiFi:\n');
-    localIPs.forEach(ip => {
+    console.log("📱 Access from ANY device on same WiFi:\n");
+    localIPs.forEach((ip) => {
       console.log(`   http://${ip}:${PORT}`);
     });
   }
 
-  console.log('\n💻 Access from this computer:\n');
+  console.log("\n💻 Access from this computer:\n");
   console.log(`   http://localhost:${PORT}`);
 
   if (localIPs.length > 0) {
-    console.log('\n📋 Quick Access Instructions:\n');
+    console.log("\n📋 Quick Access Instructions:\n");
     console.log(`   • On Mobile: Open browser → http://${localIPs[0]}:${PORT}`);
     console.log(`   • On PC: Open browser → http://localhost:${PORT}`);
     console.log(`   • On Tablet: Open browser → http://${localIPs[0]}:${PORT}`);
-    console.log('\n💡 Tip: Bookmark the URL on your devices for easy access!');
+    console.log("\n💡 Tip: Bookmark the URL on your devices for easy access!");
   }
 
-  console.log('\n🔒 Security Features Active:');
-  console.log('\n========================================\n');
+  console.log("\n🔒 Security Features Active:");
+  console.log("\n========================================\n");
 });
