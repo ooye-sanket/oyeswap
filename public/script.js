@@ -15,10 +15,7 @@ if ("serviceWorker" in navigator) {
     navigator.serviceWorker
       .register("/sw.js")
       .then((registration) => {
-        console.log(
-          "✅ Service Worker registered successfully:",
-          registration.scope
-        );
+        console.log("✅ Service Worker registered successfully:", registration.scope);
       })
       .catch((error) => {
         console.error("❌ Service Worker registration failed:", error);
@@ -31,7 +28,6 @@ if ("serviceWorker" in navigator) {
    ======================================== */
 
 if ("serviceWorker" in navigator) {
-  // Check for updates every 10 minutes
   setInterval(() => {
     navigator.serviceWorker.getRegistration().then((reg) => {
       if (reg) {
@@ -39,57 +35,84 @@ if ("serviceWorker" in navigator) {
         reg.update();
       }
     });
-  }, 10 * 60 * 1000); // Check every 10 minutes
+  }, 10 * 60 * 1000);
 
-  // Listen for new service worker
   navigator.serviceWorker.addEventListener("controllerchange", () => {
     console.log("✅ New version available! Reloading...");
-
-    // Show notification to user
-    showPopup("🎉 App updated! Reloading...", true);
-
-    // Wait 2 seconds then reload
+    showPopup("App updated! Reloading...", true);
     setTimeout(() => {
       window.location.reload();
     }, 2000);
   });
 }
 
-// PWA Install Prompt
-let deferredPrompt;
+/* ========================================
+   ONE-CLICK PWA INSTALL
+   ======================================== */
 
+let deferredPrompt;
+const installBtn = document.getElementById("installBtn");
+
+// Always show install button
+if (installBtn) {
+  installBtn.style.display = "block";
+}
+
+// Check if already installed
+const isStandalone = window.matchMedia("(display-mode: standalone)").matches || 
+                     window.navigator.standalone || 
+                     document.referrer.includes('android-app://');
+
+if (isStandalone) {
+  console.log("📱 Already running as PWA");
+  if (installBtn) {
+    installBtn.style.display = "none";
+  }
+}
+
+// Capture install prompt
 window.addEventListener("beforeinstallprompt", (e) => {
   e.preventDefault();
   deferredPrompt = e;
   console.log("💾 PWA install prompt ready");
-
-  // Show install button if it exists
-  const installBtn = document.getElementById("installBtn");
+  
   if (installBtn) {
     installBtn.style.display = "block";
-    installBtn.onclick = async () => {
-      if (deferredPrompt) {
-        deferredPrompt.prompt();
-        const { outcome } = await deferredPrompt.userChoice;
-        console.log(`User ${outcome} the install prompt`);
-        if (outcome === "accepted") {
-          showPopup("Installing app... 📥");
-        }
-        deferredPrompt = null;
-        installBtn.style.display = "none";
-      }
-    };
   }
 });
 
-// Track when app is installed
+// One-click install handler
+if (installBtn) {
+  installBtn.onclick = async () => {
+    if (deferredPrompt) {
+      // Direct install - no popup
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      
+      if (outcome === "accepted") {
+        showPopup("Installing app...");
+        installBtn.style.display = "none";
+      }
+      
+      deferredPrompt = null;
+    } else {
+      // If no prompt available, just show quick message
+      showPopup("Open browser menu to install", false);
+    }
+  };
+}
+
+// Track successful installation
 window.addEventListener("appinstalled", () => {
   console.log("✅ OyeSwap PWA installed successfully!");
-  showPopup("App installed! Find it on your home screen 🎉");
+  showPopup("App installed successfully!");
+  if (installBtn) {
+    installBtn.style.display = "none";
+  }
 });
 
 // Detect if running as PWA
-if (window.matchMedia("(display-mode: standalone)").matches) {
+if (isStandalone) {
   console.log("📱 Running as installed PWA");
 }
 
@@ -150,14 +173,30 @@ el("editNameBtn").onclick = () => {
 
 /* -------------------- THEME -------------------- */
 const themeBtn = el("themeToggle");
+const sunIcon = themeBtn.querySelector('.sun-icon');
+const moonIcon = themeBtn.querySelector('.moon-icon');
+
 if (localStorage.getItem("theme") === "dark") {
   document.body.classList.add("dark");
-  themeBtn.textContent = "D";
+  if (sunIcon) sunIcon.style.display = "block";
+  if (moonIcon) moonIcon.style.display = "none";
+} else {
+  if (sunIcon) sunIcon.style.display = "none";
+  if (moonIcon) moonIcon.style.display = "block";
 }
+
 themeBtn.onclick = () => {
   document.body.classList.toggle("dark");
   const dark = document.body.classList.contains("dark");
-  themeBtn.textContent = dark ? "D" : "N";
+
+  if (dark) {
+    if (sunIcon) sunIcon.style.display = "block";
+    if (moonIcon) moonIcon.style.display = "none";
+  } else {
+    if (sunIcon) sunIcon.style.display = "none";
+    if (moonIcon) moonIcon.style.display = "block";
+  }
+  
   localStorage.setItem("theme", dark ? "dark" : "light");
 };
 
@@ -403,7 +442,13 @@ function showFilePreview(files) {
         const sizeGB = (f.size / (1024 * 1024 * 1024)).toFixed(2);
         const sizeStr =
           f.size > 1024 * 1024 * 1024 ? `${sizeGB} GB` : `${sizeMB} MB`;
-        return `<div>📦 ${f.name} (${sizeStr})</div>`;
+        return `<div>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline-block; vertical-align:middle; margin-right:6px;">
+            <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+            <polyline points="13 2 13 9 20 9"></polyline>
+          </svg>
+          ${f.name} (${sizeStr})
+        </div>`;
       })
       .join("");
   } else {
@@ -798,9 +843,15 @@ socket.on("file-approval-request", (data) => {
       const sizeGB = (f.size / (1024 * 1024 * 1024)).toFixed(2);
       const sizeStr =
         f.size > 1024 * 1024 * 1024 ? `${sizeGB} GB` : `${sizeMB} MB`;
-      return `<div class="approval-file-item">📄 ${f.name} (${sizeStr})</div>`;
+      return `<div class="approval-file-item">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline-block; vertical-align:middle; margin-right:6px;">
+          <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+          <polyline points="13 2 13 9 20 9"></polyline>
+        </svg>
+        ${f.name} (${sizeStr})
+      </div>`;
     })
-    .join("");
+    .join(""); 
 
   const totalMB = (data.totalSize / (1024 * 1024)).toFixed(2);
   const totalGB = (data.totalSize / (1024 * 1024 * 1024)).toFixed(2);

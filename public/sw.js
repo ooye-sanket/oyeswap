@@ -1,4 +1,4 @@
-const CACHE_NAME = 'const CACHE_NAME = 'oyeswap-v1.0.1';
+const CACHE_NAME = 'oyeswap-v1.0.1';
 const urlsToCache = [
   '/',
   '/style.css',
