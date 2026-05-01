@@ -1,0 +1,55 @@
+name: Deploy OyeSwap
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy-backend:
+    name: Deploy Lambda Functions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm install
+
+      - name: Zip connect function
+        run: |
+          cd backend
+          cp -r functions/connect deploy-connect
+          cp -r node_modules deploy-connect/node_modules
+          cd deploy-connect
+          zip -r ../../connect.zip .
+
+      - name: Zip disconnect function
+        run: |
+          cd backend
+          cp -r functions/disconnect deploy-disconnect
+          cp -r node_modules deploy-disconnect/node_modules
+          cd deploy-disconnect
+          zip -r ../../disconnect.zip .
+
+      - name: Zip message function
+        run: |
+          cd backend
+          cp -r functions/message deploy-message
+          cp -r node_modules deploy-message/node_modules
+          cd deploy-message
+          zip -r ../../message.zip .
+
+      - name: Deploy to AWS Lambda
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ap-south-1
+        run: |
+          aws lambda update-function-code --function-name oyeswap-connect --zip-file fileb://connect.zip --region ap-south-1
+          aws lambda update-function-code --function-name oyeswap-disconnect --zip-file fileb://disconnect.zip --region ap-south-1
+          aws lambda update-function-code --function-name oyeswap-message --zip-file fileb://message.zip --region ap-south-1

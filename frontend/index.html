@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OyeSwap</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-inner">
+      <span class="logo">OyeSwap</span>
+      <span class="my-device">
+        Your device: <strong id="device-name">Loading...</strong>
+      </span>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <main class="main">
+
+    <!-- Devices Grid -->
+    <section class="section">
+      <h2 class="section-title">Nearby Devices</h2>
+      <div id="devices-container" class="devices-grid">
+        <div class="no-devices">
+          <p>Looking for devices...</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Send Area -->
+    <section class="section" id="send-area" style="display:none;">
+      <h2 class="section-title">
+        Send to <span class="target-name"></span>
+      </h2>
+
+      <div id="drop-zone" class="drop-zone">
+        <p>Drag & drop a file here</p>
+        <p>or</p>
+        <label class="file-label">
+          Browse file
+          <input type="file" id="file-input" hidden />
+        </label>
+        <p id="file-info" class="file-info"></p>
+      </div>
+
+      <button id="send-btn" class="btn-primary">Send File</button>
+
+      <!-- Progress -->
+      <div id="progress-wrap" class="progress-wrap" style="display:none;">
+        <div class="progress-track">
+          <div id="progress-bar" class="progress-bar" style="width:0%"></div>
+        </div>
+        <p class="progress-label">Transferring...</p>
+      </div>
+    </section>
+
+    <!-- Chat -->
+    <section class="section">
+      <h2 class="section-title">Chat</h2>
+      <div>
+        <select id="chat-target" class="chat-select">
+          <option value="">Select device to chat</option>
+        </select>
+      </div>
+      <div id="chat-messages" class="chat-messages"></div>
+      <div class="chat-input-row">
+        <input id="chat-input" class="chat-input" 
+               type="text" placeholder="Type a message..." />
+        <button id="chat-send-btn" class="btn-primary">Send</button>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Approval Modal -->
+  <div id="approval-modal" class="modal-overlay" style="display:none;">
+    <div class="modal">
+      <h3>Incoming File</h3>
+      <p><strong class="sender-name"></strong> wants to send you a file</p>
+      <p class="file-name"></p>
+      <p class="file-size"></p>
+      <div class="modal-buttons">
+        <button id="accept-btn" class="btn-primary">Accept</button>
+        <button id="decline-btn" class="btn-danger">Decline</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast"></div>
+
+  <script src="config.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
