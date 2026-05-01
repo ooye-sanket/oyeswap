@@ -11,3 +11,9 @@ Thumbs.db
 dist/
 build/
 public/
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+!.env.example
