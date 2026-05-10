@@ -80,6 +80,7 @@ function updateStatus(online) {
 // Message Handler
 // ============================================
 let peerConnections = {};
+let iceCandidateQueues = {};  // queued ICE candidates per peer, applied after remote description is set
 let currentRoomCode = null;
 let currentPeerConnectionId = null;
 
@@ -367,6 +368,13 @@ async function handleWebRTCSignal(msg) {
 
   if (signal.type === 'offer') {
     await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+    // Flush any ICE candidates that arrived before the offer was processed
+    const queued = iceCandidateQueues[fromConnectionId] || [];
+    for (const c of queued) {
+      try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) { console.warn('ICE flush:', e); }
+    }
+    iceCandidateQueues[fromConnectionId] = [];
+
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     sendWS({
@@ -375,11 +383,27 @@ async function handleWebRTCSignal(msg) {
       signal: { type: 'answer', sdp: answer }
     });
   }
-  if (signal.type === 'answer')
+
+  if (signal.type === 'answer') {
     await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+    // Flush any ICE candidates that arrived before the answer was processed
+    const queued = iceCandidateQueues[fromConnectionId] || [];
+    for (const c of queued) {
+      try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) { console.warn('ICE flush:', e); }
+    }
+    iceCandidateQueues[fromConnectionId] = [];
+  }
+
   if (signal.type === 'ice') {
-    try { await pc.addIceCandidate(new RTCIceCandidate(signal.candidate)); }
-    catch (e) { console.error('ICE:', e); }
+    if (pc.remoteDescription) {
+      // Remote description already set — apply immediately
+      try { await pc.addIceCandidate(new RTCIceCandidate(signal.candidate)); }
+      catch (e) { console.error('ICE:', e); }
+    } else {
+      // Remote description not set yet — queue for later
+      if (!iceCandidateQueues[fromConnectionId]) iceCandidateQueues[fromConnectionId] = [];
+      iceCandidateQueues[fromConnectionId].push(signal.candidate);
+    }
   }
 }
 
