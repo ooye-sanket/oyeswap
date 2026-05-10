@@ -2,24 +2,22 @@
 // OyeSwap - WebRTC + AWS WebSocket
 // ============================================
 
-let ws;
+let ws, wsUrl = CONFIG.WS_URL;
 let clientId = localStorage.getItem('oyeswap-clientid');
 if (!clientId) {
   clientId = 'device-' + Math.random().toString(36).substr(2, 9);
   localStorage.setItem('oyeswap-clientid', clientId);
 }
 
-const deviceName = localStorage.getItem('oyeswap-devicename') || generateDeviceName();
+let deviceName = localStorage.getItem('oyeswap-devicename') || generateDeviceName();
 function generateDeviceName() {
-  const adjectives = ['Swift', 'Brave', 'Calm', 'Dark', 'Epic'];
-  const nouns = ['Tiger', 'Eagle', 'Storm', 'Nova', 'Bolt'];
-  const name = adjectives[Math.floor(Math.random()*adjectives.length)] + 
-               nouns[Math.floor(Math.random()*nouns.length)];
+  const adj = ['Swift','Brave','Calm','Dark','Epic','Bold','Wise','Slick'];
+  const noun = ['Tiger','Eagle','Storm','Nova','Bolt','Spark','Wave','Fox'];
+  const name = adj[Math.floor(Math.random()*adj.length)] + noun[Math.floor(Math.random()*noun.length)];
   localStorage.setItem('oyeswap-devicename', name);
   return name;
 }
 
-// Device type detection
 function getDeviceType() {
   const ua = navigator.userAgent;
   if (/mobile/i.test(ua)) return 'mobile';
@@ -28,46 +26,43 @@ function getDeviceType() {
 }
 
 // ============================================
-// WebSocket Connection
+// WebSocket
 // ============================================
-
-let reconnectTimer;
+let reconnectTimer, keepaliveTimer;
 let isConnected = false;
 
 function connectWS() {
-  ws = new WebSocket(CONFIG.WS_URL);
+  ws = new WebSocket(wsUrl);
 
   ws.onopen = () => {
     isConnected = true;
     clearTimeout(reconnectTimer);
-    console.log('Connected to signaling server');
-    
-    // Register this device
+    updateConnectionStatus(true);
     ws.send(JSON.stringify({
-      type: 'register',
-      clientId,
-      deviceName,
-      deviceType: getDeviceType()
+      type: 'register', clientId, deviceName, deviceType: getDeviceType()
     }));
+    // Keepalive every 8 min (API Gateway times out at 10 min)
+    keepaliveTimer = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'ping' }));
+      }
+    }, 8 * 60 * 1000);
   };
 
-  ws.onmessage = (event) => {
+  ws.onmessage = (e) => {
     let msg;
-    try { msg = JSON.parse(event.data); } 
-    catch { return; }
+    try { msg = JSON.parse(e.data); } catch { return; }
     handleMessage(msg);
   };
 
   ws.onclose = () => {
     isConnected = false;
-    console.log('Disconnected — reconnecting in 3s...');
+    clearInterval(keepaliveTimer);
+    updateConnectionStatus(false);
     reconnectTimer = setTimeout(connectWS, 3000);
   };
 
-  ws.onerror = (err) => {
-    console.error('WS error:', err);
-    ws.close();
-  };
+  ws.onerror = () => ws.close();
 }
 
 function sendWS(data) {
@@ -76,39 +71,45 @@ function sendWS(data) {
   }
 }
 
+function updateConnectionStatus(online) {
+  const dot = document.getElementById('status-dot');
+  const txt = document.getElementById('status-text');
+  if (dot) dot.className = 'status-dot ' + (online ? 'online' : 'offline');
+  if (txt) txt.textContent = online ? 'Online' : 'Reconnecting...';
+}
+
 // ============================================
 // Message Handler
 // ============================================
-
-let pendingApprovals = {};
-let peerConnections = {};
 let latestDevices = [];
+let peerConnections = {};
+let pendingApprovals = {};
 
 function handleMessage(msg) {
   switch(msg.type) {
-
     case 'devices':
-      latestDevices = msg.list || [];
+      latestDevices = (msg.list || []).filter(d => d.clientId !== clientId);
       renderDevices(latestDevices);
+      renderConnectedDevices(latestDevices);
+      populateChatDropdown(latestDevices);
       break;
-
     case 'approval-request':
       showApprovalModal(msg);
       break;
-
     case 'approval-result':
+      clearTimeout(pendingApprovals[selectedTargetId]);
       if (msg.approved) {
-        startWebRTCSend(msg);
+        showToast('Accepted! Starting transfer...');
+        // ✅ THE FIX: use receiverConnectionId from response
+        startWebRTCSend(msg.receiverConnectionId);
       } else {
-        showToast('Transfer declined');
-        hideProgress();
+        showToast('Transfer was declined');
+        setProgress(0, false);
       }
       break;
-
     case 'webrtc-signal':
       handleWebRTCSignal(msg);
       break;
-
     case 'chat':
       receiveChatMessage(msg);
       break;
@@ -118,33 +119,6 @@ function handleMessage(msg) {
 // ============================================
 // Device Rendering
 // ============================================
-
-function renderDevices(devices) {
-  const container = document.getElementById('devices-container') || 
-                    document.querySelector('.devices-grid');
-  if (!container) return;
-
-  // Filter out self
-  const others = devices.filter(d => d.clientId !== clientId);
-
-  if (others.length === 0) {
-    container.innerHTML = `
-      <div class="no-devices">
-        <p>No other devices nearby</p>
-        <p class="hint">Open OyeSwap on another device</p>
-      </div>`;
-    return;
-  }
-
-  container.innerHTML = others.map(device => `
-    <div class="device-card" onclick="selectDevice('${device.clientId}', '${device.deviceName}')">
-      <div class="device-icon">${getDeviceIcon(device.deviceType)}</div>
-      <div class="device-name">${escapeHtml(device.deviceName)}</div>
-      <div class="device-type">${device.deviceType}</div>
-    </div>
-  `).join('');
-}
-
 function getDeviceIcon(type) {
   if (type === 'mobile') return '📱';
   if (type === 'tablet') return '📟';
@@ -152,50 +126,78 @@ function getDeviceIcon(type) {
 }
 
 function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+function renderDevices(devices) {
+  const container = document.getElementById('send-devices');
+  if (!container) return;
+  if (devices.length === 0) {
+    container.innerHTML = '<p class="empty-hint">No devices found — open OyeSwap on another device</p>';
+    return;
+  }
+  container.innerHTML = devices.map(d => `
+    <div class="device-pill ${selectedTargetId === d.clientId ? 'selected' : ''}"
+         onclick="selectTarget('${d.clientId}','${escapeHtml(d.deviceName)}')">
+      <span class="dpill-icon">${getDeviceIcon(d.deviceType)}</span>
+      <span class="dpill-name">${escapeHtml(d.deviceName)}</span>
+    </div>
+  `).join('');
+}
+
+function renderConnectedDevices(devices) {
+  const container = document.getElementById('connected-devices');
+  if (!container) return;
+  if (devices.length === 0) {
+    container.innerHTML = '<p class="empty-hint">Waiting for devices...</p>';
+    return;
+  }
+  container.innerHTML = devices.map(d => `
+    <div class="connected-device-row">
+      <span>${getDeviceIcon(d.deviceType)}</span>
+      <span>${escapeHtml(d.deviceName)}</span>
+      <span class="device-type-badge">${d.deviceType}</span>
+    </div>
+  `).join('');
+}
+
+function populateChatDropdown(devices) {
+  const sel = document.getElementById('chat-target');
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Select a user...</option>' +
+    devices.map(d => `<option value="${d.clientId}" ${d.clientId===current?'selected':''}>${escapeHtml(d.deviceName)}</option>`).join('');
 }
 
 // ============================================
-// File Transfer — Send Side
+// Send Flow
 // ============================================
-
 let selectedFile = null;
 let selectedTargetId = null;
 let selectedTargetName = null;
 
-function selectDevice(targetClientId, targetName) {
-  selectedTargetId = targetClientId;
-  selectedTargetName = targetName;
-  
-  // Highlight selected device
-  document.querySelectorAll('.device-card').forEach(c => c.classList.remove('selected'));
-  event.currentTarget.classList.add('selected');
-  
-  // Show file picker area
-  const sendArea = document.getElementById('send-area');
-  if (sendArea) {
-    sendArea.style.display = 'block';
-    sendArea.querySelector('.target-name').textContent = targetName;
-  }
+function selectTarget(id, name) {
+  selectedTargetId = id;
+  selectedTargetName = name;
+  const label = document.getElementById('selected-target-label');
+  if (label) label.textContent = 'Sending to: ' + name;
+  renderDevices(latestDevices);
 }
 
 function handleFileSelect(file) {
   if (!file) return;
   selectedFile = file;
-  
-  const fileInfo = document.getElementById('file-info');
-  if (fileInfo) {
-    fileInfo.textContent = `${file.name} (${formatSize(file.size)})`;
+  const info = document.getElementById('file-info');
+  if (info) {
+    info.innerHTML = `<span class="file-chip">📄 ${escapeHtml(file.name)} <em>${formatSize(file.size)}</em></span>`;
   }
 }
 
 function sendFile() {
-  if (!selectedFile) { showToast('Please select a file'); return; }
-  if (!selectedTargetId) { showToast('Please select a device'); return; }
-
-  // Request approval from receiver
+  if (!selectedFile) { showToast('Please select a file first'); return; }
+  if (!selectedTargetId) { showToast('Please select a device first'); return; }
   sendWS({
     type: 'request-approval',
     targetClientId: selectedTargetId,
@@ -203,173 +205,119 @@ function sendFile() {
     fileSize: selectedFile.size,
     senderName: deviceName
   });
-
   showToast('Waiting for approval...');
-  showProgress(0);
-
-  // Timeout if no response in 60 seconds
+  setProgress(0, true);
+  document.getElementById('progress-label').textContent = 'Waiting for approval...';
   pendingApprovals[selectedTargetId] = setTimeout(() => {
-    showToast('No response from receiver');
-    hideProgress();
+    showToast('No response — request timed out');
+    setProgress(0, false);
   }, 60000);
 }
 
 // ============================================
-// Approval Modal — Receiver Side  
+// Approval Modal
 // ============================================
-
 let pendingApprovalMsg = null;
 
 function showApprovalModal(msg) {
   pendingApprovalMsg = msg;
-  
-  const modal = document.getElementById('approval-modal');
-  if (!modal) return;
-
-  modal.querySelector('.sender-name').textContent = msg.senderName;
-  modal.querySelector('.file-name').textContent = msg.fileName;
-  modal.querySelector('.file-size').textContent = formatSize(msg.fileSize);
-  modal.style.display = 'flex';
+  document.getElementById('modal-sender').textContent = msg.senderName;
+  document.getElementById('modal-filename').textContent = msg.fileName;
+  document.getElementById('modal-filesize').textContent = formatSize(msg.fileSize);
+  document.getElementById('approval-modal').classList.add('active');
 }
 
 function acceptTransfer() {
   if (!pendingApprovalMsg) return;
-  
-  document.getElementById('approval-modal').style.display = 'none';
-
+  document.getElementById('approval-modal').classList.remove('active');
   sendWS({
     type: 'approval-response',
     senderConnectionId: pendingApprovalMsg.senderConnectionId,
     approved: true,
     fileName: pendingApprovalMsg.fileName
   });
-
-  // Prepare to receive WebRTC connection
   prepareWebRTCReceive(pendingApprovalMsg.senderConnectionId);
   pendingApprovalMsg = null;
 }
 
 function declineTransfer() {
   if (!pendingApprovalMsg) return;
-  
-  document.getElementById('approval-modal').style.display = 'none';
-
+  document.getElementById('approval-modal').classList.remove('active');
   sendWS({
     type: 'approval-response',
     senderConnectionId: pendingApprovalMsg.senderConnectionId,
-    approved: false,
-    fileName: pendingApprovalMsg.fileName
+    approved: false
   });
-
   pendingApprovalMsg = null;
 }
 
 // ============================================
-// WebRTC — Sender Side
+// WebRTC Sender
 // ============================================
-
-async function startWebRTCSend(msg) {
-  clearTimeout(pendingApprovals[selectedTargetId]);
-
+async function startWebRTCSend(receiverConnectionId) {
   const pc = new RTCPeerConnection({
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' }
     ]
   });
+  peerConnections[receiverConnectionId] = pc;
 
-  peerConnections[msg.senderConnectionId] = pc;
-
-  // Create data channel
-  const channel = pc.createDataChannel('fileTransfer', {
-    ordered: true
-  });
+  const channel = pc.createDataChannel('fileTransfer', { ordered: true });
 
   channel.onopen = () => {
-    console.log('Data channel open — starting transfer');
+    document.getElementById('progress-label').textContent = 'Transferring...';
     sendFileOverChannel(channel, selectedFile);
   };
-
-  channel.onerror = (e) => {
-    console.error('Channel error:', e);
+  channel.onerror = () => {
     showToast('Transfer failed');
-    hideProgress();
+    setProgress(0, false);
   };
 
-  // ICE candidates
   pc.onicecandidate = (e) => {
     if (e.candidate) {
-      sendWS({
-        type: 'webrtc-signal',
-        targetConnectionId: msg.senderConnectionId,
-        signal: { type: 'ice', candidate: e.candidate }
-      });
+      sendWS({ type: 'webrtc-signal', targetConnectionId: receiverConnectionId,
+        signal: { type: 'ice', candidate: e.candidate } });
     }
   };
 
-  // Create offer
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
-
-  sendWS({
-    type: 'webrtc-signal',
-    targetConnectionId: msg.senderConnectionId,
-    signal: { type: 'offer', sdp: offer }
-  });
+  sendWS({ type: 'webrtc-signal', targetConnectionId: receiverConnectionId,
+    signal: { type: 'offer', sdp: offer } });
 }
 
 async function sendFileOverChannel(channel, file) {
-  const CHUNK_SIZE = 64 * 1024; // 64KB chunks
-  const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-  
-  // Send file metadata first
+  const CHUNK = 64 * 1024;
   channel.send(JSON.stringify({
-    kind: 'meta',
-    name: file.name,
-    size: file.size,
-    totalChunks
+    kind: 'meta', name: file.name, size: file.size,
+    totalChunks: Math.ceil(file.size / CHUNK)
   }));
 
   let offset = 0;
-  let chunkIndex = 0;
-
-  const sendNextChunk = () => {
+  const sendNext = () => {
     if (offset >= file.size) {
       channel.send(JSON.stringify({ kind: 'done' }));
-      showToast('Transfer complete!');
-      hideProgress();
+      showToast('✅ File sent successfully!');
+      setProgress(100, false);
       return;
     }
-
-    // Wait if buffer is full
-    if (channel.bufferedAmount > CHUNK_SIZE * 8) {
-      setTimeout(sendNextChunk, 50);
-      return;
-    }
-
-    const slice = file.slice(offset, offset + CHUNK_SIZE);
+    if (channel.bufferedAmount > CHUNK * 8) { setTimeout(sendNext, 50); return; }
     const reader = new FileReader();
-    
     reader.onload = (e) => {
       channel.send(e.target.result);
-      offset += CHUNK_SIZE;
-      chunkIndex++;
-      
-      const progress = Math.min((offset / file.size) * 100, 100);
-      showProgress(progress);
-      sendNextChunk();
+      offset += CHUNK;
+      setProgress((offset / file.size) * 100, true);
+      sendNext();
     };
-    
-    reader.readAsArrayBuffer(slice);
+    reader.readAsArrayBuffer(file.slice(offset, offset + CHUNK));
   };
-
-  sendNextChunk();
+  sendNext();
 }
 
 // ============================================
-// WebRTC — Receiver Side
+// WebRTC Receiver
 // ============================================
-
 function prepareWebRTCReceive(senderConnectionId) {
   const pc = new RTCPeerConnection({
     iceServers: [
@@ -377,230 +325,194 @@ function prepareWebRTCReceive(senderConnectionId) {
       { urls: 'stun:stun1.l.google.com:19302' }
     ]
   });
-
   peerConnections[senderConnectionId] = pc;
 
-  let receivedMeta = null;
-  let receivedChunks = [];
-  let receivedSize = 0;
+  let meta = null, chunks = [], received = 0;
 
-  pc.ondatachannel = (event) => {
-    const channel = event.channel;
-
-    channel.onmessage = (e) => {
-      if (typeof e.data === 'string') {
-        const msg = JSON.parse(e.data);
-        
+  pc.ondatachannel = (e) => {
+    const ch = e.channel;
+    ch.onmessage = (ev) => {
+      if (typeof ev.data === 'string') {
+        const msg = JSON.parse(ev.data);
         if (msg.kind === 'meta') {
-          receivedMeta = msg;
-          receivedChunks = [];
-          receivedSize = 0;
-          showProgress(0);
-          showToast(`Receiving ${msg.name}...`);
+          meta = msg; chunks = []; received = 0;
+          setProgress(0, true);
         }
-        
         if (msg.kind === 'done') {
-          const blob = new Blob(receivedChunks);
-          downloadFile(blob, receivedMeta.name);
-          showToast('File received!');
-          hideProgress();
-          receivedChunks = [];
+          downloadFile(new Blob(chunks), meta.name);
+          showToast('✅ File received: ' + meta.name);
+          setProgress(100, false);
+          addReceivedFile(meta.name, meta.size);
         }
       } else {
-        // Binary chunk
-        receivedChunks.push(e.data);
-        receivedSize += e.data.byteLength;
-        
-        if (receivedMeta) {
-          const progress = (receivedSize / receivedMeta.size) * 100;
-          showProgress(Math.min(progress, 100));
-        }
+        chunks.push(ev.data);
+        received += ev.data.byteLength;
+        if (meta) setProgress((received / meta.size) * 100, true);
       }
     };
   };
 
   pc.onicecandidate = (e) => {
     if (e.candidate) {
-      sendWS({
-        type: 'webrtc-signal',
-        targetConnectionId: senderConnectionId,
-        signal: { type: 'ice', candidate: e.candidate }
-      });
+      sendWS({ type: 'webrtc-signal', targetConnectionId: senderConnectionId,
+        signal: { type: 'ice', candidate: e.candidate } });
     }
   };
 }
 
 async function handleWebRTCSignal(msg) {
   const { signal, fromConnectionId } = msg;
-  let pc = peerConnections[fromConnectionId];
-
+  const pc = peerConnections[fromConnectionId];
   if (!pc) return;
 
   if (signal.type === 'offer') {
     await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-
-    sendWS({
-      type: 'webrtc-signal',
-      targetConnectionId: fromConnectionId,
-      signal: { type: 'answer', sdp: answer }
-    });
+    sendWS({ type: 'webrtc-signal', targetConnectionId: fromConnectionId,
+      signal: { type: 'answer', sdp: answer } });
   }
-
   if (signal.type === 'answer') {
     await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
   }
-
   if (signal.type === 'ice') {
-    try {
-      await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
-    } catch(e) {
-      console.error('ICE error:', e);
-    }
+    try { await pc.addIceCandidate(new RTCIceCandidate(signal.candidate)); }
+    catch(e) { console.error('ICE error:', e); }
   }
 }
 
 // ============================================
-// File Download Helper
+// Receive Panel
 // ============================================
-
-function downloadFile(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+function addReceivedFile(name, size) {
+  const list = document.getElementById('received-files');
+  if (!list) return;
+  const item = document.createElement('div');
+  item.className = 'received-file-item';
+  item.innerHTML = `<span>📄 ${escapeHtml(name)}</span><span class="file-size-badge">${formatSize(size)}</span>`;
+  list.prepend(item);
+  const empty = list.querySelector('.empty-hint');
+  if (empty) empty.remove();
 }
 
 // ============================================
 // Chat
 // ============================================
+let chatTarget = null;
 
-function sendChat(targetClientId, message) {
-  if (!message.trim()) return;
-  const safe = message.substring(0, 1000);
-  
-  sendWS({
-    type: 'chat',
-    targetClientId,
-    message: safe,
-    senderName: deviceName
-  });
+function sendChat() {
+  const input = document.getElementById('chat-input');
+  const sel = document.getElementById('chat-target');
+  if (!input || !sel || !sel.value || !input.value.trim()) return;
+  const msg = input.value.trim().substring(0, 1000);
+  sendWS({ type: 'chat', targetClientId: sel.value, message: msg, senderName: deviceName });
+  appendChatMessage(msg, deviceName, true);
+  input.value = '';
 }
 
 function receiveChatMessage(msg) {
-  const chatBox = document.getElementById('chat-messages');
-  if (!chatBox) return;
+  appendChatMessage(msg.message, msg.senderName, false);
+}
 
+function appendChatMessage(text, sender, isMine) {
+  const box = document.getElementById('chat-messages');
+  if (!box) return;
   const div = document.createElement('div');
-  div.className = 'chat-message received';
-  div.innerHTML = `
-    <span class="chat-sender">${escapeHtml(msg.senderName)}</span>
-    <span class="chat-text">${escapeHtml(msg.message)}</span>
-  `;
-  chatBox.appendChild(div);
-  chatBox.scrollTop = chatBox.scrollHeight;
+  div.className = 'chat-bubble ' + (isMine ? 'mine' : 'theirs');
+  div.innerHTML = `${!isMine ? `<span class="bubble-sender">${escapeHtml(sender)}</span>` : ''}
+    <span class="bubble-text">${escapeHtml(text)}</span>`;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
+function burnAll() {
+  if (!confirm('Burn all messages? This cannot be undone.')) return;
+  document.getElementById('chat-messages').innerHTML = '';
+  showToast('🔥 Chat burned');
 }
 
 // ============================================
-// UI Helpers
+// Helpers
 // ============================================
+function downloadFile(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
 
-function showProgress(percent) {
+function setProgress(pct, show) {
+  const wrap = document.getElementById('progress-wrap');
   const bar = document.getElementById('progress-bar');
-  const wrap = document.getElementById('progress-wrap');
-  if (wrap) wrap.style.display = 'block';
-  if (bar) bar.style.width = percent + '%';
+  if (wrap) wrap.style.display = show ? 'block' : 'none';
+  if (bar) bar.style.width = Math.min(pct, 100) + '%';
 }
 
-function hideProgress() {
-  const wrap = document.getElementById('progress-wrap');
-  if (wrap) wrap.style.display = 'none';
+function showToast(msg) {
+  let t = document.getElementById('toast');
+  if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t); }
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), 3000);
 }
 
-function showToast(message) {
-  let toast = document.getElementById('toast');
-  if (!toast) {
-    toast = document.createElement('div');
-    toast.id = 'toast';
-    document.body.appendChild(toast);
+function formatSize(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  if (b < 1073741824) return (b/1048576).toFixed(1) + ' MB';
+  return (b/1073741824).toFixed(1) + ' GB';
+}
+
+// ============================================
+// Device Name Edit
+// ============================================
+function editDeviceName() {
+  const n = prompt('Enter device name:', deviceName);
+  if (n && n.trim()) {
+    deviceName = n.trim().substring(0, 24);
+    localStorage.setItem('oyeswap-devicename', deviceName);
+    document.getElementById('my-device-name').textContent = deviceName;
+    sendWS({ type: 'register', clientId, deviceName, deviceType: getDeviceType() });
   }
-  toast.textContent = message;
-  toast.classList.add('show');
-  setTimeout(() => toast.classList.remove('show'), 3000);
-}
-
-function formatSize(bytes) {
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
-  if (bytes < 1024*1024*1024) return (bytes/(1024*1024)).toFixed(1) + ' MB';
-  return (bytes/(1024*1024*1024)).toFixed(1) + ' GB';
 }
 
 // ============================================
-// Drag and Drop + File Input
+// Init
 // ============================================
-
 document.addEventListener('DOMContentLoaded', () => {
-  // Show device name
-  const nameEl = document.getElementById('device-name');
-  if (nameEl) nameEl.textContent = deviceName;
+  document.getElementById('my-device-name').textContent = deviceName;
 
   // File input
-  const fileInput = document.getElementById('file-input');
-  if (fileInput) {
-    fileInput.addEventListener('change', (e) => {
-      handleFileSelect(e.target.files[0]);
-    });
-  }
+  document.getElementById('file-input').addEventListener('change', e => {
+    handleFileSelect(e.target.files[0]);
+  });
 
-  // Drag and drop
-  const dropZone = document.getElementById('drop-zone');
-  if (dropZone) {
-    dropZone.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      dropZone.classList.add('drag-over');
-    });
-    dropZone.addEventListener('dragleave', () => {
-      dropZone.classList.remove('drag-over');
-    });
-    dropZone.addEventListener('drop', (e) => {
-      e.preventDefault();
-      dropZone.classList.remove('drag-over');
-      handleFileSelect(e.dataTransfer.files[0]);
-    });
-  }
+  // Drop zone
+  const dz = document.getElementById('drop-zone');
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault(); dz.classList.remove('drag-over');
+    handleFileSelect(e.dataTransfer.files[0]);
+  });
 
   // Send button
-  const sendBtn = document.getElementById('send-btn');
-  if (sendBtn) sendBtn.addEventListener('click', sendFile);
+  document.getElementById('send-btn').addEventListener('click', sendFile);
 
   // Approval buttons
-  const acceptBtn = document.getElementById('accept-btn');
-  const declineBtn = document.getElementById('decline-btn');
-  if (acceptBtn) acceptBtn.addEventListener('click', acceptTransfer);
-  if (declineBtn) declineBtn.addEventListener('click', declineTransfer);
+  document.getElementById('accept-btn').addEventListener('click', acceptTransfer);
+  document.getElementById('decline-btn').addEventListener('click', declineTransfer);
 
-  // Chat send
-  const chatInput = document.getElementById('chat-input');
-  const chatSendBtn = document.getElementById('chat-send-btn');
-  if (chatSendBtn && chatInput) {
-    chatSendBtn.addEventListener('click', () => {
-      const targetSelect = document.getElementById('chat-target');
-      if (targetSelect && chatInput.value.trim()) {
-        sendChat(targetSelect.value, chatInput.value);
-        chatInput.value = '';
-      }
-    });
-    chatInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') chatSendBtn.click();
-    });
-  }
+  // Chat
+  document.getElementById('chat-send-btn').addEventListener('click', sendChat);
+  document.getElementById('chat-input').addEventListener('keypress', e => {
+    if (e.key === 'Enter') sendChat();
+  });
+  document.getElementById('burn-btn').addEventListener('click', burnAll);
 
-  // Connect to WebSocket
   connectWS();
 });

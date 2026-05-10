@@ -12,81 +12,125 @@
   <!-- Header -->
   <header class="header">
     <div class="header-inner">
-      <span class="logo">OyeSwap</span>
-      <span class="my-device">
-        Your device: <strong id="device-name">Loading...</strong>
-      </span>
+      <div class="logo-area">
+        <span class="logo">⚡ OyeSwap</span>
+        <div class="status-pill">
+          <span class="status-dot offline" id="status-dot"></span>
+          <span class="status-text" id="status-text">Connecting...</span>
+        </div>
+      </div>
+      <div class="device-area">
+        <span class="device-label">Your device:</span>
+        <span class="device-name" id="my-device-name">Loading...</span>
+        <button class="edit-btn" onclick="editDeviceName()" title="Edit name">✏️</button>
+      </div>
     </div>
   </header>
 
-  <!-- Main -->
-  <main class="main">
+  <!-- Main Grid -->
+  <main class="main-grid">
 
-    <!-- Devices Grid -->
-    <section class="section">
-      <h2 class="section-title">Nearby Devices</h2>
-      <div id="devices-container" class="devices-grid">
-        <div class="no-devices">
-          <p>Looking for devices...</p>
+    <!-- Panel 1: Send Files -->
+    <section class="panel" id="panel-send">
+      <div class="panel-header">
+        <span class="panel-icon">📤</span>
+        <h2 class="panel-title">Send Files</h2>
+      </div>
+
+      <div class="drop-zone" id="drop-zone">
+        <div class="drop-zone-inner">
+          <span class="drop-icon">📁</span>
+          <p class="drop-text">Drag & drop files here</p>
+          <p class="drop-sub">or</p>
+          <label class="file-btn">
+            Select Files
+            <input type="file" id="file-input" hidden />
+          </label>
         </div>
       </div>
-    </section>
 
-    <!-- Send Area -->
-    <section class="section" id="send-area" style="display:none;">
-      <h2 class="section-title">
-        Send to <span class="target-name"></span>
-      </h2>
+      <div id="file-info" class="file-info"></div>
 
-      <div id="drop-zone" class="drop-zone">
-        <p>Drag & drop a file here</p>
-        <p>or</p>
-        <label class="file-label">
-          Browse file
-          <input type="file" id="file-input" hidden />
-        </label>
-        <p id="file-info" class="file-info"></p>
+      <div class="section-label">Select device:</div>
+      <div id="send-devices" class="devices-list">
+        <p class="empty-hint">Looking for devices...</p>
       </div>
+      <div id="selected-target-label" class="selected-target"></div>
 
-      <button id="send-btn" class="btn-primary">Send File</button>
+      <button class="btn-send" id="send-btn">Send File</button>
 
-      <!-- Progress -->
-      <div id="progress-wrap" class="progress-wrap" style="display:none;">
+      <div id="progress-wrap" class="progress-wrap" style="display:none">
         <div class="progress-track">
-          <div id="progress-bar" class="progress-bar" style="width:0%"></div>
+          <div id="progress-bar" class="progress-bar"></div>
         </div>
-        <p class="progress-label">Transferring...</p>
+        <p id="progress-label" class="progress-label">Transferring...</p>
       </div>
     </section>
 
-    <!-- Chat -->
-    <section class="section">
-      <h2 class="section-title">Chat</h2>
-      <div>
+    <!-- Panel 2: Receive -->
+    <section class="panel" id="panel-receive">
+      <div class="panel-header">
+        <span class="panel-icon">📥</span>
+        <h2 class="panel-title">Receive</h2>
+      </div>
+
+      <div class="section-label">Connected Devices</div>
+      <div id="connected-devices" class="connected-devices">
+        <p class="empty-hint">Waiting for devices...</p>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="section-label">Received Files</div>
+      <div id="received-files" class="received-files">
+        <p class="empty-hint">No files received yet</p>
+      </div>
+    </section>
+
+    <!-- Panel 3: Chat -->
+    <section class="panel" id="panel-chat">
+      <div class="panel-header">
+        <span class="panel-icon">💬</span>
+        <h2 class="panel-title">Ephemeral Chat</h2>
+        <span class="chat-active-dot" id="status-dot-chat">● Active</span>
+      </div>
+
+      <div class="chat-with-row">
+        <span class="section-label">Chat with:</span>
         <select id="chat-target" class="chat-select">
-          <option value="">Select device to chat</option>
+          <option value="">Select a user...</option>
         </select>
       </div>
+
       <div id="chat-messages" class="chat-messages"></div>
-      <div class="chat-input-row">
-        <input id="chat-input" class="chat-input" 
-               type="text" placeholder="Type a message..." />
-        <button id="chat-send-btn" class="btn-primary">Send</button>
+
+      <div class="chat-input-area">
+        <input id="chat-input" class="chat-input" type="text"
+               placeholder="Type your message..." />
+        <button class="btn-chat-send" id="chat-send-btn">Send</button>
+      </div>
+
+      <div class="chat-actions">
+        <button class="btn-burn" id="burn-btn">🔥 Burn All</button>
+        <button class="btn-leave" onclick="showToast('Left chat')">↪ Leave Chat</button>
       </div>
     </section>
 
   </main>
 
   <!-- Approval Modal -->
-  <div id="approval-modal" class="modal-overlay" style="display:none;">
+  <div id="approval-modal" class="modal-overlay">
     <div class="modal">
-      <h3>Incoming File</h3>
-      <p><strong class="sender-name"></strong> wants to send you a file</p>
-      <p class="file-name"></p>
-      <p class="file-size"></p>
-      <div class="modal-buttons">
-        <button id="accept-btn" class="btn-primary">Accept</button>
-        <button id="decline-btn" class="btn-danger">Decline</button>
+      <div class="modal-icon">📨</div>
+      <h3 class="modal-title">Incoming File</h3>
+      <p class="modal-sender"><strong id="modal-sender"></strong> wants to send you a file</p>
+      <div class="modal-file-info">
+        <span id="modal-filename" class="modal-filename"></span>
+        <span id="modal-filesize" class="modal-filesize"></span>
+      </div>
+      <div class="modal-actions">
+        <button id="accept-btn" class="btn-accept">✅ Accept</button>
+        <button id="decline-btn" class="btn-decline">❌ Decline</button>
       </div>
     </div>
   </div>
