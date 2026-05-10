@@ -126,7 +126,7 @@
             <div class="progress-track">
               <div id="progress-bar-recv" class="progress-bar"></div>
             </div>
-            <p class="progress-label">Receiving...</p>
+            <p class="progress-label" id="recv-speed">Receiving...</p>
           </div>
 
           <div id="recv-done" class="recv-done" style="display:none">
@@ -191,8 +191,6 @@
   <!-- Toast -->
   <div id="toast" class="toast"></div>
 
-  <!-- StreamSaver.js — streams received file directly to disk, no RAM limit -->
-  <script src="https://cdn.jsdelivr.net/npm/streamsaver@2.0.6/StreamSaver.js"></script>
   <script src="config.js"></script>
   <script src="script.js"></script>
 </body>

@@ -246,8 +246,6 @@ function showReceiveInfo(fileName, fileSize, senderConnectionId) {
 // ============================================
 // WebRTC — Sender
 // ============================================
-const NUM_CHANNELS = 4;
-
 async function startWebRTCSend(receiverConnectionId) {
   const pc = new RTCPeerConnection({
     iceServers: [
@@ -257,29 +255,18 @@ async function startWebRTCSend(receiverConnectionId) {
   });
   peerConnections[receiverConnectionId] = pc;
 
-  // Create NUM_CHANNELS parallel data channels
-  const channels = [];
-  let openCount = 0;
+  const channel = pc.createDataChannel('fileTransfer', { ordered: true });
 
-  for (let i = 0; i < NUM_CHANNELS; i++) {
-    const ch = pc.createDataChannel('fileTransfer-' + i, { ordered: true });
-    channels.push(ch);
+  channel.onopen = () => {
+    updateSendStatus('Transferring...');
+    setProgress(0, true);
+    sendFileOverChannel(channel, selectedFile);
+  };
 
-    ch.onopen = () => {
-      openCount++;
-      if (openCount === NUM_CHANNELS) {
-        // All channels open — start transfer
-        updateSendStatus('Transferring...');
-        setProgress(0, true);
-        sendFileParallel(channels, selectedFile);
-      }
-    };
-
-    ch.onerror = () => {
-      showToast('Transfer failed — please try again');
-      setProgress(0, false);
-    };
-  }
+  channel.onerror = () => {
+    showToast('Transfer failed — please try again');
+    setProgress(0, false);
+  };
 
   pc.onicecandidate = (e) => {
     if (e.candidate) sendWS({
@@ -298,77 +285,48 @@ async function startWebRTCSend(receiverConnectionId) {
   });
 }
 
-// ── Parallel sender: splits file across N channels ──
-async function sendFileParallel(channels, file) {
-  const CHUNK      = 256 * 1024;   // 256 KB per chunk
-  const BUFFER_HIGH = CHUNK * 16;  // 4 MB high-water mark per channel
-  const BUFFER_LOW  = CHUNK * 4;   // 1 MB drain threshold
-  const n           = channels.length;
+async function sendFileOverChannel(channel, file) {
+  const CHUNK       = 256 * 1024;  // 256KB — sweet spot for WebRTC data channels
+  const BUFFER_HIGH = CHUNK * 16;  // 4MB high-water: pause sending
+  const BUFFER_LOW  = CHUNK * 4;   // 1MB drain threshold: resume sending
+  channel.bufferedAmountLowThreshold = BUFFER_LOW;
 
-  // Send meta on channel 0 so receiver knows what's coming
-  channels[0].send(JSON.stringify({
-    kind: 'meta', name: file.name,
-    size: file.size, numChannels: n
+  // Send file metadata first
+  channel.send(JSON.stringify({
+    kind: 'meta', name: file.name, size: file.size
   }));
 
-  let totalSent = 0;
+  let offset    = 0;
   let startTime = Date.now();
 
-  // Each channel gets a segment of the file
-  const segSize = Math.ceil(file.size / n);
+  const waitForDrain = () =>
+    new Promise(resolve => { channel.onbufferedamountlow = resolve; });
 
-  const waitForDrain = (ch) =>
-    new Promise(resolve => { ch.onbufferedamountlow = resolve; });
+  while (offset < file.size) {
+    if (channel.bufferedAmount > BUFFER_HIGH) await waitForDrain();
 
-  const sendSegment = async (ch, startOffset, endOffset, channelIdx) => {
-    ch.bufferedAmountLowThreshold = BUFFER_LOW;
-    let offset = startOffset;
+    const slice  = file.slice(offset, offset + CHUNK);
+    const buffer = await slice.arrayBuffer();   // fast native API — no FileReader
+    channel.send(buffer);
+    offset += CHUNK;
 
-    while (offset < endOffset) {
-      if (ch.bufferedAmount > BUFFER_HIGH) await waitForDrain(ch);
+    // Live speed + ETA display
+    const sent    = Math.min(offset, file.size);
+    const elapsed = (Date.now() - startTime) / 1000 || 0.001;
+    const mbps    = (sent / elapsed / 1048576).toFixed(1);
+    const pct     = Math.min((sent / file.size) * 100, 100);
+    const eta     = elapsed > 0.3
+      ? Math.ceil((file.size - sent) / (sent / elapsed) / 1000)
+      : '…';
+    setProgress(pct, true);
+    updateSendStatus('Sending — ' + mbps + ' MB/s · ' + eta + 's left');
+  }
 
-      const end    = Math.min(offset + CHUNK, endOffset);
-      const buffer = await file.slice(offset, end).arrayBuffer();
-
-      // Binary header: [channelIdx u8][offset u32] then raw bytes
-      const header = new ArrayBuffer(5);
-      const view   = new DataView(header);
-      view.setUint8(0, channelIdx);
-      view.setUint32(1, offset, false);  // big-endian offset
-
-      // Combine header + chunk into one send
-      const packet = new Uint8Array(5 + buffer.byteLength);
-      packet.set(new Uint8Array(header), 0);
-      packet.set(new Uint8Array(buffer), 5);
-      ch.send(packet.buffer);
-
-      totalSent += (end - offset);
-      offset     = end;
-
-      // Live speed + progress update
-      const elapsed = (Date.now() - startTime) / 1000;
-      const mbps    = (totalSent / elapsed / 1048576).toFixed(1);
-      const pct     = Math.min((totalSent / file.size) * 100, 100);
-      const remaining = elapsed > 0.5
-        ? ((file.size - totalSent) / (totalSent / elapsed) / 1000).toFixed(0)
-        : '…';
-      setProgress(pct, true);
-      updateSendStatus('Transferring — ' + mbps + ' MB/s · ' + remaining + 's left');
-    }
-  };
-
-  // Launch all segments in parallel
-  const tasks = channels.map((ch, i) =>
-    sendSegment(ch, i * segSize, Math.min((i + 1) * segSize, file.size), i)
-  );
-  await Promise.all(tasks);
-
-  // Signal done on channel 0
-  channels[0].send(JSON.stringify({ kind: 'done' }));
+  channel.send(JSON.stringify({ kind: 'done' }));
   clearInterval(codeExpireTimer);
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   const avg     = (file.size / elapsed / 1048576).toFixed(1);
-  updateSendStatus('✅ Sent in ' + elapsed + 's · avg ' + avg + ' MB/s');
+  updateSendStatus('✅ Done — ' + avg + ' MB/s avg · ' + elapsed + 's');
   setProgress(100, true);
   showToast('✅ File sent!');
 }
@@ -385,31 +343,11 @@ function prepareWebRTCReceive(senderConnectionId) {
   });
   peerConnections[senderConnectionId] = pc;
 
-  let meta         = null;
-  let received     = 0;
-  let startTime    = null;
-  // Collect segments from all channels, keyed by offset
-  let segments     = {};
-  let channelsDone = 0;
-
-  // StreamSaver: stream chunks directly to disk (no RAM buffering)
-  let writer       = null;
-
-  const tryStream  = () => {
-    if (!writer) return;
-    // Sort all received offsets and write sequentially
-    const offsets = Object.keys(segments).map(Number).sort((a, b) => a - b);
-    for (const off of offsets) {
-      if (segments[off]) {
-        writer.write(new Uint8Array(segments[off]));
-        delete segments[off];
-      }
-    }
-  };
+  let meta = null, chunks = [], received = 0, startTime = null;
 
   pc.ondatachannel = (e) => {
     const ch = e.channel;
-    ch.binaryType = 'arraybuffer';
+    ch.binaryType = 'arraybuffer';  // ensures ev.data is ArrayBuffer, not Blob
 
     ch.onmessage = (ev) => {
       if (typeof ev.data === 'string') {
@@ -417,67 +355,43 @@ function prepareWebRTCReceive(senderConnectionId) {
 
         if (msg.kind === 'meta') {
           meta      = msg;
+          chunks    = [];
           received  = 0;
-          segments  = {};
           startTime = Date.now();
           setProgress(0, true);
-
-          // Open a StreamSaver writable stream if available
-          if (window.streamSaver) {
-            const fileStream = streamSaver.createWriteStream(msg.name, { size: msg.size });
-            writer = fileStream.getWriter();
-          }
         }
 
-        if (msg.kind === 'done') {
-          channelsDone++;
-          const numCh = meta.numChannels || 1;
-
-          if (channelsDone >= numCh) {
-            if (writer) {
-              tryStream();
-              writer.close();
-              writer = null;
-              showToast('✅ ' + meta.name + ' saved!');
-            } else {
-              // Fallback: assemble from segments and download
-              const sorted  = Object.keys(segments).map(Number).sort((a, b) => a - b);
-              const allBufs = sorted.map(k => segments[k]);
-              downloadFile(new Blob(allBufs), meta.name);
-              showToast('✅ ' + meta.name + ' saved!');
-            }
-
-            const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-            const avg     = (meta.size / elapsed / 1048576).toFixed(1);
-            setProgress(100, true);
-            document.getElementById('recv-done').style.display = 'block';
-            document.getElementById('receive-status').querySelector('p') &&
-              (document.getElementById('recv-done').previousElementSibling.textContent =
-                'Received in ' + elapsed + 's · avg ' + avg + ' MB/s');
-          }
+        if (msg.kind === 'done' && meta) {
+          downloadFile(new Blob(chunks), meta.name);
+          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+          const avg     = (meta.size / elapsed / 1048576).toFixed(1);
+          showToast('✅ ' + meta.name + ' saved!');
+          setProgress(100, true);
+          document.getElementById('recv-done').style.display = 'block';
+          document.getElementById('recv-speed') &&
+            (document.getElementById('recv-speed').textContent =
+              '✅ Done — ' + avg + ' MB/s avg · ' + elapsed + 's');
         }
       } else {
-        // Binary packet: [channelIdx u8][offset u32][data...]
-        const view     = new DataView(ev.data);
-        const offset   = view.getUint32(1, false);
-        const data     = ev.data.slice(5);
+        // Plain binary chunk — push directly
+        chunks.push(ev.data);
+        received += ev.data.byteLength;
 
-        segments[offset] = data;
-        received        += data.byteLength;
-
-        if (writer) tryStream();
-
-        if (meta) {
-          const elapsed = (Date.now() - startTime) / 1000;
-          const mbps    = elapsed > 0.1
-            ? (received / elapsed / 1048576).toFixed(1)
-            : '…';
+        if (meta && startTime) {
+          const elapsed = (Date.now() - startTime) / 1000 || 0.001;
+          const mbps    = (received / elapsed / 1048576).toFixed(1);
           const pct     = Math.min((received / meta.size) * 100, 100);
           setProgress(pct, true);
-          const el = document.getElementById('receive-status').querySelector('p');
+          // Update receive status with live speed
+          const el = document.getElementById('recv-speed');
           if (el) el.textContent = 'Receiving — ' + mbps + ' MB/s';
         }
       }
+    };
+
+    ch.onerror = (e) => {
+      console.error('Data channel error:', e);
+      showToast('Transfer error — please try again');
     };
   };
 
@@ -605,10 +519,16 @@ function downloadFile(blob, name) {
 }
 
 function setProgress(pct, show) {
+  // sender bar
   const wrap = document.getElementById('progress-wrap');
-  const bar = document.getElementById('progress-bar');
+  const bar  = document.getElementById('progress-bar');
   if (wrap) wrap.style.display = show ? 'block' : 'none';
-  if (bar) bar.style.width = Math.min(pct, 100) + '%';
+  if (bar)  bar.style.width    = Math.min(pct, 100) + '%';
+  // receiver bar (same progress %)
+  const rWrap = document.getElementById('recv-progress-wrap');
+  const rBar  = document.getElementById('progress-bar-recv');
+  if (rWrap) rWrap.style.display = show ? 'block' : 'none';
+  if (rBar)  rBar.style.width    = Math.min(pct, 100) + '%';
 }
 
 function showToast(msg) {
