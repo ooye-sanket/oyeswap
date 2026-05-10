@@ -27,6 +27,25 @@ function getDeviceType() {
 }
 
 // ============================================
+// ICE servers — STUN + free TURN relay fallback
+// FIX 1: Without TURN, symmetric NAT peers hang forever.
+// Open Relay is free, no sign-up needed.
+// ============================================
+const ICE_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  {
+    urls: [
+      'turn:openrelay.metered.ca:80',
+      'turn:openrelay.metered.ca:443',
+      'turn:openrelay.metered.ca:443?transport=tcp'
+    ],
+    username: 'openrelayproject',
+    credential: 'openrelayproject'
+  }
+];
+
+// ============================================
 // WebSocket
 // ============================================
 let ws, reconnectTimer, keepaliveTimer;
@@ -80,7 +99,8 @@ function updateStatus(online) {
 // Message Handler
 // ============================================
 let peerConnections = {};
-let iceCandidateQueues = {};  // queued ICE candidates per peer, applied after remote description is set
+let iceCandidateQueues = {};  // ICE candidates queued before remote desc is set
+let pendingSignals = {};      // FIX 2: signals buffered before prepareWebRTCReceive runs
 let currentRoomCode = null;
 let currentPeerConnectionId = null;
 
@@ -88,15 +108,15 @@ function handleMessage(msg) {
   switch (msg.type) {
 
     case 'receiver-joined':
-      // Sender: receiver has joined, start WebRTC
+      // Receiver joined at WebSocket level — WebRTC not connected yet.
+      // DO NOT say "starting transfer" here; the channel hasn't opened.
       currentPeerConnectionId = msg.receiverConnectionId;
-      showToast('Receiver connected! Starting transfer...');
-      updateSendStatus('Receiver connected — starting transfer...');
+      showToast('Receiver joined — connecting P2P...');
+      updateSendStatus('Receiver joined — negotiating connection...');
       startWebRTCSend(msg.receiverConnectionId);
       break;
 
     case 'room-joined':
-      // Receiver: got room info, start WebRTC receive side
       currentPeerConnectionId = msg.senderConnectionId;
       showReceiveInfo(msg.fileName, msg.fileSize, msg.senderConnectionId);
       prepareWebRTCReceive(msg.senderConnectionId);
@@ -114,7 +134,6 @@ function handleMessage(msg) {
 
     case 'chat':
       appendChatMessage(msg.message, msg.senderName, false);
-      // Flash chat section
       document.getElementById('chat-section').classList.add('chat-flash');
       setTimeout(() => document.getElementById('chat-section').classList.remove('chat-flash'), 800);
       break;
@@ -148,17 +167,12 @@ function handleFileSelect(file) {
   if (!file) return;
   selectedFile = file;
 
-  // Show file info
   document.getElementById('file-info').innerHTML =
     `<span class="file-chip">📄 ${escapeHtml(file.name)} <em>${formatSize(file.size)}</em></span>`;
 
-  // Generate room code
   currentRoomCode = generateRoomCode();
-
-  // Show QR + code panel
   showCodePanel(currentRoomCode, file);
 
-  // Register room in backend
   sendWS({
     type: 'create-room',
     roomCode: currentRoomCode,
@@ -166,20 +180,16 @@ function handleFileSelect(file) {
     fileSize: file.size
   });
 
-  // Start 5 min countdown
   startCodeExpiry();
 }
 
 function showCodePanel(code, file) {
   const panel = document.getElementById('code-panel');
   panel.style.display = 'block';
-
-  // QR code using free QR API (no cost, no account needed)
   document.getElementById('qr-img').src = generateQRUrl(code);
   document.getElementById('room-code-display').textContent = code;
   document.getElementById('send-file-name').textContent = file.name;
   document.getElementById('send-file-size').textContent = formatSize(file.size);
-
   updateSendStatus('Waiting for receiver to scan or enter code...');
 }
 
@@ -240,32 +250,44 @@ function showReceiveInfo(fileName, fileSize, senderConnectionId) {
   document.getElementById('recv-filesize').textContent = formatSize(fileSize);
   document.getElementById('join-btn').textContent = 'Receive';
   document.getElementById('join-btn').disabled = false;
-  showToast('Connected! Receiving ' + fileName + '...');
+  showToast('Room joined — connecting P2P...');
 }
 
 // ============================================
 // WebRTC — Sender
 // ============================================
 async function startWebRTCSend(receiverConnectionId) {
-  const pc = new RTCPeerConnection({
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' }
-    ]
-  });
+  const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
   peerConnections[receiverConnectionId] = pc;
 
   const channel = pc.createDataChannel('fileTransfer', { ordered: true });
 
+  // FIX: only show "transferring" when the data channel actually opens
   channel.onopen = () => {
+    showToast('P2P connected — sending!');
     updateSendStatus('Transferring...');
     setProgress(0, true);
     sendFileOverChannel(channel, selectedFile);
   };
 
-  channel.onerror = () => {
+  channel.onerror = (e) => {
+    console.error('Data channel error (sender):', e);
     showToast('Transfer failed — please try again');
     setProgress(0, false);
+  };
+
+  // Show real ICE state so user knows what's happening
+  pc.oniceconnectionstatechange = () => {
+    const state = pc.iceConnectionState;
+    console.log('ICE state (sender):', state);
+    if (state === 'checking')
+      updateSendStatus('Finding peer-to-peer route...');
+    if (state === 'connected' || state === 'completed')
+      updateSendStatus('P2P connected — opening channel...');
+    if (state === 'failed')
+      updateSendStatus('❌ P2P connection failed — try again');
+    if (state === 'disconnected')
+      updateSendStatus('Connection lost...');
   };
 
   pc.onicecandidate = (e) => {
@@ -286,31 +308,32 @@ async function startWebRTCSend(receiverConnectionId) {
 }
 
 async function sendFileOverChannel(channel, file) {
-  const CHUNK       = 256 * 1024;  // 256KB — sweet spot for WebRTC data channels
-  const BUFFER_HIGH = CHUNK * 16;  // 4MB high-water: pause sending
-  const BUFFER_LOW  = CHUNK * 4;   // 1MB drain threshold: resume sending
+  const CHUNK       = 256 * 1024;  // 256 KB
+  const BUFFER_HIGH = CHUNK * 16;  // 4 MB high-water: pause
+  const BUFFER_LOW  = CHUNK * 4;   // 1 MB drain threshold: resume
   channel.bufferedAmountLowThreshold = BUFFER_LOW;
 
-  // Send file metadata first
-  channel.send(JSON.stringify({
-    kind: 'meta', name: file.name, size: file.size
-  }));
+  channel.send(JSON.stringify({ kind: 'meta', name: file.name, size: file.size }));
 
   let offset    = 0;
   let startTime = Date.now();
 
-  const waitForDrain = () =>
-    new Promise(resolve => { channel.onbufferedamountlow = resolve; });
+  // FIX 3: addEventListener + { once: true } — never misses the drain event.
+  // Also check AFTER send so a fast drain cannot race past the listener setup.
+  const waitForDrain = () => new Promise(resolve => {
+    if (channel.bufferedAmount <= BUFFER_LOW) { resolve(); return; }
+    channel.addEventListener('bufferedamountlow', resolve, { once: true });
+  });
 
   while (offset < file.size) {
+    const slice  = file.slice(offset, offset + CHUNK);
+    const buffer = await slice.arrayBuffer();
+    channel.send(buffer);
+    offset += buffer.byteLength;  // use actual bytes sent, not CHUNK
+
+    // Backpressure after send (not before — avoids the pre-drain race)
     if (channel.bufferedAmount > BUFFER_HIGH) await waitForDrain();
 
-    const slice  = file.slice(offset, offset + CHUNK);
-    const buffer = await slice.arrayBuffer();   // fast native API — no FileReader
-    channel.send(buffer);
-    offset += CHUNK;
-
-    // Live speed + ETA display
     const sent    = Math.min(offset, file.size);
     const elapsed = (Date.now() - startTime) / 1000 || 0.001;
     const mbps    = (sent / elapsed / 1048576).toFixed(1);
@@ -319,14 +342,14 @@ async function sendFileOverChannel(channel, file) {
       ? Math.ceil((file.size - sent) / (sent / elapsed) / 1000)
       : '…';
     setProgress(pct, true);
-    updateSendStatus('Sending — ' + mbps + ' MB/s · ' + eta + 's left');
+    updateSendStatus(`Sending — ${mbps} MB/s · ${eta}s left`);
   }
 
   channel.send(JSON.stringify({ kind: 'done' }));
   clearInterval(codeExpireTimer);
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   const avg     = (file.size / elapsed / 1048576).toFixed(1);
-  updateSendStatus('✅ Done — ' + avg + ' MB/s avg · ' + elapsed + 's');
+  updateSendStatus(`✅ Done — ${avg} MB/s avg · ${elapsed}s`);
   setProgress(100, true);
   showToast('✅ File sent!');
 }
@@ -335,19 +358,26 @@ async function sendFileOverChannel(channel, file) {
 // WebRTC — Receiver
 // ============================================
 function prepareWebRTCReceive(senderConnectionId) {
-  const pc = new RTCPeerConnection({
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' }
-    ]
-  });
+  const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
   peerConnections[senderConnectionId] = pc;
+
+  // FIX 2: Flush any signals that arrived before we were ready.
+  // The sender may have already sent the offer before room-joined was processed.
+  const buffered = pendingSignals[senderConnectionId] || [];
+  delete pendingSignals[senderConnectionId];
+  for (const msg of buffered) handleWebRTCSignal(msg);
 
   let meta = null, chunks = [], received = 0, startTime = null;
 
   pc.ondatachannel = (e) => {
     const ch = e.channel;
-    ch.binaryType = 'arraybuffer';  // ensures ev.data is ArrayBuffer, not Blob
+    ch.binaryType = 'arraybuffer';
+
+    ch.onopen = () => {
+      showToast('P2P connected — receiving!');
+      const el = document.getElementById('recv-speed');
+      if (el) el.textContent = 'Receiving...';
+    };
 
     ch.onmessage = (ev) => {
       if (typeof ev.data === 'string') {
@@ -368,12 +398,10 @@ function prepareWebRTCReceive(senderConnectionId) {
           showToast('✅ ' + meta.name + ' saved!');
           setProgress(100, true);
           document.getElementById('recv-done').style.display = 'block';
-          document.getElementById('recv-speed') &&
-            (document.getElementById('recv-speed').textContent =
-              '✅ Done — ' + avg + ' MB/s avg · ' + elapsed + 's');
+          const el = document.getElementById('recv-speed');
+          if (el) el.textContent = `✅ Done — ${avg} MB/s avg · ${elapsed}s`;
         }
       } else {
-        // Plain binary chunk — push directly
         chunks.push(ev.data);
         received += ev.data.byteLength;
 
@@ -382,17 +410,24 @@ function prepareWebRTCReceive(senderConnectionId) {
           const mbps    = (received / elapsed / 1048576).toFixed(1);
           const pct     = Math.min((received / meta.size) * 100, 100);
           setProgress(pct, true);
-          // Update receive status with live speed
           const el = document.getElementById('recv-speed');
-          if (el) el.textContent = 'Receiving — ' + mbps + ' MB/s';
+          if (el) el.textContent = `Receiving — ${mbps} MB/s`;
         }
       }
     };
 
     ch.onerror = (e) => {
-      console.error('Data channel error:', e);
+      console.error('Data channel error (receiver):', e);
       showToast('Transfer error — please try again');
     };
+  };
+
+  pc.oniceconnectionstatechange = () => {
+    const state = pc.iceConnectionState;
+    console.log('ICE state (receiver):', state);
+    const el = document.getElementById('recv-speed');
+    if (state === 'checking' && el) el.textContent = 'Finding peer-to-peer route...';
+    if (state === 'failed') showToast('❌ P2P connection failed — try again');
   };
 
   pc.onicecandidate = (e) => {
@@ -407,11 +442,16 @@ function prepareWebRTCReceive(senderConnectionId) {
 async function handleWebRTCSignal(msg) {
   const { signal, fromConnectionId } = msg;
   const pc = peerConnections[fromConnectionId];
-  if (!pc) return;
+
+  if (!pc) {
+    // FIX 2: pc not ready yet — buffer and replay when prepareWebRTCReceive runs
+    if (!pendingSignals[fromConnectionId]) pendingSignals[fromConnectionId] = [];
+    pendingSignals[fromConnectionId].push(msg);
+    return;
+  }
 
   if (signal.type === 'offer') {
     await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
-    // Flush any ICE candidates that arrived before the offer was processed
     const queued = iceCandidateQueues[fromConnectionId] || [];
     for (const c of queued) {
       try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) { console.warn('ICE flush:', e); }
@@ -429,7 +469,6 @@ async function handleWebRTCSignal(msg) {
 
   if (signal.type === 'answer') {
     await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
-    // Flush any ICE candidates that arrived before the answer was processed
     const queued = iceCandidateQueues[fromConnectionId] || [];
     for (const c of queued) {
       try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) { console.warn('ICE flush:', e); }
@@ -439,11 +478,9 @@ async function handleWebRTCSignal(msg) {
 
   if (signal.type === 'ice') {
     if (pc.remoteDescription) {
-      // Remote description already set — apply immediately
       try { await pc.addIceCandidate(new RTCIceCandidate(signal.candidate)); }
       catch (e) { console.error('ICE:', e); }
     } else {
-      // Remote description not set yet — queue for later
       if (!iceCandidateQueues[fromConnectionId]) iceCandidateQueues[fromConnectionId] = [];
       iceCandidateQueues[fromConnectionId].push(signal.candidate);
     }
@@ -497,10 +534,8 @@ function checkURLCode() {
   const code = params.get('code');
   if (code) {
     document.getElementById('code-input').value = code;
-    // Scroll to receive section
     document.getElementById('panel-receive').scrollIntoView({ behavior: 'smooth' });
     showToast('Code detected — click Receive!');
-    // Clean URL
     window.history.replaceState({}, '', window.location.pathname);
   }
 }
@@ -519,12 +554,10 @@ function downloadFile(blob, name) {
 }
 
 function setProgress(pct, show) {
-  // sender bar
   const wrap = document.getElementById('progress-wrap');
   const bar  = document.getElementById('progress-bar');
   if (wrap) wrap.style.display = show ? 'block' : 'none';
   if (bar)  bar.style.width    = Math.min(pct, 100) + '%';
-  // receiver bar (same progress %)
   const rWrap = document.getElementById('recv-progress-wrap');
   const rBar  = document.getElementById('progress-bar-recv');
   if (rWrap) rWrap.style.display = show ? 'block' : 'none';
@@ -568,12 +601,10 @@ function editDeviceName() {
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('my-device-name').textContent = deviceName;
 
-  // File input
   document.getElementById('file-input').addEventListener('change', e => {
     handleFileSelect(e.target.files[0]);
   });
 
-  // Drop zone
   const dz = document.getElementById('drop-zone');
   dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
   dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
@@ -583,22 +614,17 @@ document.addEventListener('DOMContentLoaded', () => {
     handleFileSelect(e.dataTransfer.files[0]);
   });
 
-  // Receive
   document.getElementById('join-btn').addEventListener('click', joinRoom);
   document.getElementById('code-input').addEventListener('keypress', e => {
     if (e.key === 'Enter') joinRoom();
   });
 
-  // Chat
   document.getElementById('chat-send-btn').addEventListener('click', sendChat);
   document.getElementById('chat-input').addEventListener('keypress', e => {
     if (e.key === 'Enter') sendChat();
   });
   document.getElementById('burn-btn').addEventListener('click', burnAll);
 
-  // Check URL for QR code
   checkURLCode();
-
-  // Connect
   connectWS();
 });
