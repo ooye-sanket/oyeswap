@@ -286,33 +286,39 @@ async function startWebRTCSend(receiverConnectionId) {
 }
 
 async function sendFileOverChannel(channel, file) {
-  const CHUNK = 64 * 1024;
+  // FIX 1: 256KB chunks — 4x bigger = 4x fewer round-trips and framing overhead
+  const CHUNK = 256 * 1024;
+  // FIX 3: Use bufferedamountlow event — instant wake-up instead of blind 50ms poll
+  const BUFFER_HIGH = CHUNK * 16;   // 4MB — pause sending when buffer exceeds this
+  const BUFFER_LOW  = CHUNK * 4;    // 1MB — resume sending once buffer drains to this
+  channel.bufferedAmountLowThreshold = BUFFER_LOW;
+
   channel.send(JSON.stringify({
     kind: 'meta', name: file.name,
     size: file.size, totalChunks: Math.ceil(file.size / CHUNK)
   }));
 
   let offset = 0;
-  const sendNext = () => {
-    if (offset >= file.size) {
-      channel.send(JSON.stringify({ kind: 'done' }));
-      clearInterval(codeExpireTimer);
-      updateSendStatus('✅ File sent successfully!');
-      setProgress(100, true);
-      showToast('✅ File sent!');
-      return;
-    }
-    if (channel.bufferedAmount > CHUNK * 8) { setTimeout(sendNext, 50); return; }
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      channel.send(e.target.result);
-      offset += CHUNK;
-      setProgress((offset / file.size) * 100, true);
-      sendNext();
-    };
-    reader.readAsArrayBuffer(file.slice(offset, offset + CHUNK));
-  };
-  sendNext();
+
+  const waitForDrain = () =>
+    new Promise(resolve => { channel.onbufferedamountlow = resolve; });
+
+  while (offset < file.size) {
+    // FIX 3: Event-driven backpressure — no more setTimeout polling
+    if (channel.bufferedAmount > BUFFER_HIGH) await waitForDrain();
+
+    // FIX 2: file.slice().arrayBuffer() — no FileReader object, no callback, direct & fast
+    const buffer = await file.slice(offset, offset + CHUNK).arrayBuffer();
+    channel.send(buffer);
+    offset += CHUNK;
+    setProgress(Math.min((offset / file.size) * 100, 100), true);
+  }
+
+  channel.send(JSON.stringify({ kind: 'done' }));
+  clearInterval(codeExpireTimer);
+  updateSendStatus('✅ File sent successfully!');
+  setProgress(100, true);
+  showToast('✅ File sent!');
 }
 
 // ============================================
