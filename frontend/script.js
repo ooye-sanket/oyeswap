@@ -1,8 +1,9 @@
 // ============================================
-// OyeSwap - WebRTC + AWS WebSocket
+// OyeSwap — QR + Code Flow + WebRTC P2P
 // ============================================
 
-let ws, wsUrl = CONFIG.WS_URL;
+const WS_URL = CONFIG.WS_URL;
+
 let clientId = localStorage.getItem('oyeswap-clientid');
 if (!clientId) {
   clientId = 'device-' + Math.random().toString(36).substr(2, 9);
@@ -28,37 +29,35 @@ function getDeviceType() {
 // ============================================
 // WebSocket
 // ============================================
-let reconnectTimer, keepaliveTimer;
+let ws, reconnectTimer, keepaliveTimer;
 let isConnected = false;
 
 function connectWS() {
-  ws = new WebSocket(wsUrl);
+  ws = new WebSocket(WS_URL);
 
   ws.onopen = () => {
     isConnected = true;
     clearTimeout(reconnectTimer);
-    updateConnectionStatus(true);
+    updateStatus(true);
     ws.send(JSON.stringify({
-      type: 'register', clientId, deviceName, deviceType: getDeviceType()
+      type: 'register', clientId,
+      deviceName, deviceType: getDeviceType()
     }));
-    // Keepalive every 8 min (API Gateway times out at 10 min)
     keepaliveTimer = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws.readyState === WebSocket.OPEN)
         ws.send(JSON.stringify({ type: 'ping' }));
-      }
     }, 8 * 60 * 1000);
   };
 
   ws.onmessage = (e) => {
-    let msg;
-    try { msg = JSON.parse(e.data); } catch { return; }
+    let msg; try { msg = JSON.parse(e.data); } catch { return; }
     handleMessage(msg);
   };
 
   ws.onclose = () => {
     isConnected = false;
     clearInterval(keepaliveTimer);
-    updateConnectionStatus(false);
+    updateStatus(false);
     reconnectTimer = setTimeout(connectWS, 3000);
   };
 
@@ -66,12 +65,11 @@ function connectWS() {
 }
 
 function sendWS(data) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
+  if (ws && ws.readyState === WebSocket.OPEN)
     ws.send(JSON.stringify(data));
-  }
 }
 
-function updateConnectionStatus(online) {
+function updateStatus(online) {
   const dot = document.getElementById('status-dot');
   const txt = document.getElementById('status-text');
   if (dot) dot.className = 'status-dot ' + (online ? 'online' : 'offline');
@@ -81,178 +79,171 @@ function updateConnectionStatus(online) {
 // ============================================
 // Message Handler
 // ============================================
-let latestDevices = [];
 let peerConnections = {};
-let pendingApprovals = {};
+let currentRoomCode = null;
+let currentPeerConnectionId = null;
 
 function handleMessage(msg) {
-  switch(msg.type) {
-    case 'devices':
-      latestDevices = (msg.list || []).filter(d => d.clientId !== clientId);
-      renderDevices(latestDevices);
-      renderConnectedDevices(latestDevices);
-      populateChatDropdown(latestDevices);
+  switch (msg.type) {
+
+    case 'receiver-joined':
+      // Sender: receiver has joined, start WebRTC
+      currentPeerConnectionId = msg.receiverConnectionId;
+      showToast('Receiver connected! Starting transfer...');
+      updateSendStatus('Receiver connected — starting transfer...');
+      startWebRTCSend(msg.receiverConnectionId);
       break;
-    case 'approval-request':
-      showApprovalModal(msg);
+
+    case 'room-joined':
+      // Receiver: got room info, start WebRTC receive side
+      currentPeerConnectionId = msg.senderConnectionId;
+      showReceiveInfo(msg.fileName, msg.fileSize, msg.senderConnectionId);
+      prepareWebRTCReceive(msg.senderConnectionId);
       break;
-    case 'approval-result':
-      clearTimeout(pendingApprovals[selectedTargetId]);
-      if (msg.approved) {
-        showToast('Accepted! Starting transfer...');
-        // ✅ THE FIX: use receiverConnectionId from response
-        startWebRTCSend(msg.receiverConnectionId);
-      } else {
-        showToast('Transfer was declined');
-        setProgress(0, false);
-      }
+
+    case 'room-error':
+      showToast('❌ ' + msg.message);
+      document.getElementById('code-input').classList.add('shake');
+      setTimeout(() => document.getElementById('code-input').classList.remove('shake'), 500);
       break;
+
     case 'webrtc-signal':
       handleWebRTCSignal(msg);
       break;
+
     case 'chat':
-      receiveChatMessage(msg);
+      appendChatMessage(msg.message, msg.senderName, false);
+      // Flash chat section
+      document.getElementById('chat-section').classList.add('chat-flash');
+      setTimeout(() => document.getElementById('chat-section').classList.remove('chat-flash'), 800);
+      break;
+
+    case 'chat-burned':
+      document.getElementById('chat-messages').innerHTML = '';
+      showToast('🔥 Chat burned by peer');
       break;
   }
 }
 
 // ============================================
-// Device Rendering
+// Room Code Generation
 // ============================================
-function getDeviceIcon(type) {
-  if (type === 'mobile') return '📱';
-  if (type === 'tablet') return '📟';
-  return '💻';
+function generateRoomCode() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-function escapeHtml(str) {
-  const d = document.createElement('div');
-  d.textContent = str;
-  return d.innerHTML;
-}
-
-function renderDevices(devices) {
-  const container = document.getElementById('send-devices');
-  if (!container) return;
-  if (devices.length === 0) {
-    container.innerHTML = '<p class="empty-hint">No devices found — open OyeSwap on another device</p>';
-    return;
-  }
-  container.innerHTML = devices.map(d => `
-    <div class="device-pill ${selectedTargetId === d.clientId ? 'selected' : ''}"
-         onclick="selectTarget('${d.clientId}','${escapeHtml(d.deviceName)}')">
-      <span class="dpill-icon">${getDeviceIcon(d.deviceType)}</span>
-      <span class="dpill-name">${escapeHtml(d.deviceName)}</span>
-    </div>
-  `).join('');
-}
-
-function renderConnectedDevices(devices) {
-  const container = document.getElementById('connected-devices');
-  if (!container) return;
-  if (devices.length === 0) {
-    container.innerHTML = '<p class="empty-hint">Waiting for devices...</p>';
-    return;
-  }
-  container.innerHTML = devices.map(d => `
-    <div class="connected-device-row">
-      <span>${getDeviceIcon(d.deviceType)}</span>
-      <span>${escapeHtml(d.deviceName)}</span>
-      <span class="device-type-badge">${d.deviceType}</span>
-    </div>
-  `).join('');
-}
-
-function populateChatDropdown(devices) {
-  const sel = document.getElementById('chat-target');
-  if (!sel) return;
-  const current = sel.value;
-  sel.innerHTML = '<option value="">Select a user...</option>' +
-    devices.map(d => `<option value="${d.clientId}" ${d.clientId===current?'selected':''}>${escapeHtml(d.deviceName)}</option>`).join('');
+function generateQRUrl(code) {
+  const url = `${window.location.origin}?code=${code}`;
+  return `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(url)}&bgcolor=16161f&color=7c6af7&qzone=2`;
 }
 
 // ============================================
 // Send Flow
 // ============================================
 let selectedFile = null;
-let selectedTargetId = null;
-let selectedTargetName = null;
-
-function selectTarget(id, name) {
-  selectedTargetId = id;
-  selectedTargetName = name;
-  const label = document.getElementById('selected-target-label');
-  if (label) label.textContent = 'Sending to: ' + name;
-  renderDevices(latestDevices);
-}
+let codeExpireTimer = null;
 
 function handleFileSelect(file) {
   if (!file) return;
   selectedFile = file;
-  const info = document.getElementById('file-info');
-  if (info) {
-    info.innerHTML = `<span class="file-chip">📄 ${escapeHtml(file.name)} <em>${formatSize(file.size)}</em></span>`;
+
+  // Show file info
+  document.getElementById('file-info').innerHTML =
+    `<span class="file-chip">📄 ${escapeHtml(file.name)} <em>${formatSize(file.size)}</em></span>`;
+
+  // Generate room code
+  currentRoomCode = generateRoomCode();
+
+  // Show QR + code panel
+  showCodePanel(currentRoomCode, file);
+
+  // Register room in backend
+  sendWS({
+    type: 'create-room',
+    roomCode: currentRoomCode,
+    fileName: file.name,
+    fileSize: file.size
+  });
+
+  // Start 5 min countdown
+  startCodeExpiry();
+}
+
+function showCodePanel(code, file) {
+  const panel = document.getElementById('code-panel');
+  panel.style.display = 'block';
+
+  // QR code using free QR API (no cost, no account needed)
+  document.getElementById('qr-img').src = generateQRUrl(code);
+  document.getElementById('room-code-display').textContent = code;
+  document.getElementById('send-file-name').textContent = file.name;
+  document.getElementById('send-file-size').textContent = formatSize(file.size);
+
+  updateSendStatus('Waiting for receiver to scan or enter code...');
+}
+
+function startCodeExpiry() {
+  clearInterval(codeExpireTimer);
+  let secs = 300;
+  const timerEl = document.getElementById('code-timer');
+
+  codeExpireTimer = setInterval(() => {
+    secs--;
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    if (timerEl) timerEl.textContent = `Expires in ${m}:${s.toString().padStart(2,'0')}`;
+
+    if (secs <= 0) {
+      clearInterval(codeExpireTimer);
+      cancelSend();
+      showToast('Code expired — please select file again');
+    }
+  }, 1000);
+}
+
+function cancelSend() {
+  clearInterval(codeExpireTimer);
+  selectedFile = null;
+  currentRoomCode = null;
+  document.getElementById('code-panel').style.display = 'none';
+  document.getElementById('file-info').innerHTML = '';
+  document.getElementById('send-status').textContent = '';
+  setProgress(0, false);
+}
+
+function updateSendStatus(msg) {
+  const el = document.getElementById('send-status');
+  if (el) el.textContent = msg;
+}
+
+// ============================================
+// Receive Flow
+// ============================================
+function joinRoom() {
+  const input = document.getElementById('code-input');
+  const code = input.value.trim();
+  if (code.length !== 6 || !/^\d+$/.test(code)) {
+    showToast('Please enter a valid 6-digit code');
+    input.classList.add('shake');
+    setTimeout(() => input.classList.remove('shake'), 500);
+    return;
   }
+  sendWS({ type: 'join-room', roomCode: code });
+  document.getElementById('join-btn').textContent = 'Connecting...';
+  document.getElementById('join-btn').disabled = true;
 }
 
-function sendFile() {
-  if (!selectedFile) { showToast('Please select a file first'); return; }
-  if (!selectedTargetId) { showToast('Please select a device first'); return; }
-  sendWS({
-    type: 'request-approval',
-    targetClientId: selectedTargetId,
-    fileName: selectedFile.name,
-    fileSize: selectedFile.size,
-    senderName: deviceName
-  });
-  showToast('Waiting for approval...');
-  setProgress(0, true);
-  document.getElementById('progress-label').textContent = 'Waiting for approval...';
-  pendingApprovals[selectedTargetId] = setTimeout(() => {
-    showToast('No response — request timed out');
-    setProgress(0, false);
-  }, 60000);
+function showReceiveInfo(fileName, fileSize, senderConnectionId) {
+  document.getElementById('receive-status').style.display = 'block';
+  document.getElementById('recv-filename').textContent = fileName;
+  document.getElementById('recv-filesize').textContent = formatSize(fileSize);
+  document.getElementById('join-btn').textContent = 'Receive';
+  document.getElementById('join-btn').disabled = false;
+  showToast('Connected! Receiving ' + fileName + '...');
 }
 
 // ============================================
-// Approval Modal
-// ============================================
-let pendingApprovalMsg = null;
-
-function showApprovalModal(msg) {
-  pendingApprovalMsg = msg;
-  document.getElementById('modal-sender').textContent = msg.senderName;
-  document.getElementById('modal-filename').textContent = msg.fileName;
-  document.getElementById('modal-filesize').textContent = formatSize(msg.fileSize);
-  document.getElementById('approval-modal').classList.add('active');
-}
-
-function acceptTransfer() {
-  if (!pendingApprovalMsg) return;
-  document.getElementById('approval-modal').classList.remove('active');
-  sendWS({
-    type: 'approval-response',
-    senderConnectionId: pendingApprovalMsg.senderConnectionId,
-    approved: true,
-    fileName: pendingApprovalMsg.fileName
-  });
-  prepareWebRTCReceive(pendingApprovalMsg.senderConnectionId);
-  pendingApprovalMsg = null;
-}
-
-function declineTransfer() {
-  if (!pendingApprovalMsg) return;
-  document.getElementById('approval-modal').classList.remove('active');
-  sendWS({
-    type: 'approval-response',
-    senderConnectionId: pendingApprovalMsg.senderConnectionId,
-    approved: false
-  });
-  pendingApprovalMsg = null;
-}
-
-// ============================================
-// WebRTC Sender
+// WebRTC — Sender
 // ============================================
 async function startWebRTCSend(receiverConnectionId) {
   const pc = new RTCPeerConnection({
@@ -266,40 +257,48 @@ async function startWebRTCSend(receiverConnectionId) {
   const channel = pc.createDataChannel('fileTransfer', { ordered: true });
 
   channel.onopen = () => {
-    document.getElementById('progress-label').textContent = 'Transferring...';
+    updateSendStatus('Transferring...');
+    setProgress(0, true);
     sendFileOverChannel(channel, selectedFile);
   };
+
   channel.onerror = () => {
-    showToast('Transfer failed');
+    showToast('Transfer failed — please try again');
     setProgress(0, false);
   };
 
   pc.onicecandidate = (e) => {
-    if (e.candidate) {
-      sendWS({ type: 'webrtc-signal', targetConnectionId: receiverConnectionId,
-        signal: { type: 'ice', candidate: e.candidate } });
-    }
+    if (e.candidate) sendWS({
+      type: 'webrtc-signal',
+      targetConnectionId: receiverConnectionId,
+      signal: { type: 'ice', candidate: e.candidate }
+    });
   };
 
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
-  sendWS({ type: 'webrtc-signal', targetConnectionId: receiverConnectionId,
-    signal: { type: 'offer', sdp: offer } });
+  sendWS({
+    type: 'webrtc-signal',
+    targetConnectionId: receiverConnectionId,
+    signal: { type: 'offer', sdp: offer }
+  });
 }
 
 async function sendFileOverChannel(channel, file) {
   const CHUNK = 64 * 1024;
   channel.send(JSON.stringify({
-    kind: 'meta', name: file.name, size: file.size,
-    totalChunks: Math.ceil(file.size / CHUNK)
+    kind: 'meta', name: file.name,
+    size: file.size, totalChunks: Math.ceil(file.size / CHUNK)
   }));
 
   let offset = 0;
   const sendNext = () => {
     if (offset >= file.size) {
       channel.send(JSON.stringify({ kind: 'done' }));
-      showToast('✅ File sent successfully!');
-      setProgress(100, false);
+      clearInterval(codeExpireTimer);
+      updateSendStatus('✅ File sent successfully!');
+      setProgress(100, true);
+      showToast('✅ File sent!');
       return;
     }
     if (channel.bufferedAmount > CHUNK * 8) { setTimeout(sendNext, 50); return; }
@@ -316,7 +315,7 @@ async function sendFileOverChannel(channel, file) {
 }
 
 // ============================================
-// WebRTC Receiver
+// WebRTC — Receiver
 // ============================================
 function prepareWebRTCReceive(senderConnectionId) {
   const pc = new RTCPeerConnection({
@@ -340,9 +339,9 @@ function prepareWebRTCReceive(senderConnectionId) {
         }
         if (msg.kind === 'done') {
           downloadFile(new Blob(chunks), meta.name);
-          showToast('✅ File received: ' + meta.name);
-          setProgress(100, false);
-          addReceivedFile(meta.name, meta.size);
+          showToast('✅ ' + meta.name + ' saved!');
+          setProgress(100, true);
+          document.getElementById('recv-done').style.display = 'block';
         }
       } else {
         chunks.push(ev.data);
@@ -353,10 +352,11 @@ function prepareWebRTCReceive(senderConnectionId) {
   };
 
   pc.onicecandidate = (e) => {
-    if (e.candidate) {
-      sendWS({ type: 'webrtc-signal', targetConnectionId: senderConnectionId,
-        signal: { type: 'ice', candidate: e.candidate } });
-    }
+    if (e.candidate) sendWS({
+      type: 'webrtc-signal',
+      targetConnectionId: senderConnectionId,
+      signal: { type: 'ice', candidate: e.candidate }
+    });
   };
 }
 
@@ -369,58 +369,46 @@ async function handleWebRTCSignal(msg) {
     await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-    sendWS({ type: 'webrtc-signal', targetConnectionId: fromConnectionId,
-      signal: { type: 'answer', sdp: answer } });
+    sendWS({
+      type: 'webrtc-signal',
+      targetConnectionId: fromConnectionId,
+      signal: { type: 'answer', sdp: answer }
+    });
   }
-  if (signal.type === 'answer') {
+  if (signal.type === 'answer')
     await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
-  }
   if (signal.type === 'ice') {
     try { await pc.addIceCandidate(new RTCIceCandidate(signal.candidate)); }
-    catch(e) { console.error('ICE error:', e); }
+    catch (e) { console.error('ICE:', e); }
   }
-}
-
-// ============================================
-// Receive Panel
-// ============================================
-function addReceivedFile(name, size) {
-  const list = document.getElementById('received-files');
-  if (!list) return;
-  const item = document.createElement('div');
-  item.className = 'received-file-item';
-  item.innerHTML = `<span>📄 ${escapeHtml(name)}</span><span class="file-size-badge">${formatSize(size)}</span>`;
-  list.prepend(item);
-  const empty = list.querySelector('.empty-hint');
-  if (empty) empty.remove();
 }
 
 // ============================================
 // Chat
 // ============================================
-let chatTarget = null;
-
 function sendChat() {
   const input = document.getElementById('chat-input');
-  const sel = document.getElementById('chat-target');
-  if (!input || !sel || !sel.value || !input.value.trim()) return;
+  if (!input.value.trim() || !currentPeerConnectionId) {
+    if (!currentPeerConnectionId) showToast('Connect to a peer first');
+    return;
+  }
   const msg = input.value.trim().substring(0, 1000);
-  sendWS({ type: 'chat', targetClientId: sel.value, message: msg, senderName: deviceName });
+  sendWS({
+    type: 'chat',
+    targetConnectionId: currentPeerConnectionId,
+    message: msg,
+    senderName: deviceName
+  });
   appendChatMessage(msg, deviceName, true);
   input.value = '';
 }
 
-function receiveChatMessage(msg) {
-  appendChatMessage(msg.message, msg.senderName, false);
-}
-
 function appendChatMessage(text, sender, isMine) {
   const box = document.getElementById('chat-messages');
-  if (!box) return;
   const div = document.createElement('div');
   div.className = 'chat-bubble ' + (isMine ? 'mine' : 'theirs');
-  div.innerHTML = `${!isMine ? `<span class="bubble-sender">${escapeHtml(sender)}</span>` : ''}
-    <span class="bubble-text">${escapeHtml(text)}</span>`;
+  div.innerHTML = (!isMine ? `<span class="bubble-sender">${escapeHtml(sender)}</span>` : '') +
+    `<span class="bubble-text">${escapeHtml(text)}</span>`;
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
 }
@@ -428,7 +416,26 @@ function appendChatMessage(text, sender, isMine) {
 function burnAll() {
   if (!confirm('Burn all messages? This cannot be undone.')) return;
   document.getElementById('chat-messages').innerHTML = '';
+  if (currentPeerConnectionId) {
+    sendWS({ type: 'burn-chat', targetConnectionId: currentPeerConnectionId });
+  }
   showToast('🔥 Chat burned');
+}
+
+// ============================================
+// URL Code Auto-fill (QR scan)
+// ============================================
+function checkURLCode() {
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+  if (code) {
+    document.getElementById('code-input').value = code;
+    // Scroll to receive section
+    document.getElementById('panel-receive').scrollIntoView({ behavior: 'smooth' });
+    showToast('Code detected — click Receive!');
+    // Clean URL
+    window.history.replaceState({}, '', window.location.pathname);
+  }
 }
 
 // ============================================
@@ -453,23 +460,25 @@ function setProgress(pct, show) {
 
 function showToast(msg) {
   let t = document.getElementById('toast');
-  if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t); }
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(t._timer);
-  t._timer = setTimeout(() => t.classList.remove('show'), 3000);
+  t._timer = setTimeout(() => t.classList.remove('show'), 3500);
 }
 
 function formatSize(b) {
   if (b < 1024) return b + ' B';
-  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
-  if (b < 1073741824) return (b/1048576).toFixed(1) + ' MB';
-  return (b/1073741824).toFixed(1) + ' GB';
+  if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+  if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB';
+  return (b / 1073741824).toFixed(1) + ' GB';
 }
 
-// ============================================
-// Device Name Edit
-// ============================================
+function escapeHtml(str) {
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
 function editDeviceName() {
   const n = prompt('Enter device name:', deviceName);
   if (n && n.trim()) {
@@ -496,16 +505,16 @@ document.addEventListener('DOMContentLoaded', () => {
   dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
   dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
   dz.addEventListener('drop', e => {
-    e.preventDefault(); dz.classList.remove('drag-over');
+    e.preventDefault();
+    dz.classList.remove('drag-over');
     handleFileSelect(e.dataTransfer.files[0]);
   });
 
-  // Send button
-  document.getElementById('send-btn').addEventListener('click', sendFile);
-
-  // Approval buttons
-  document.getElementById('accept-btn').addEventListener('click', acceptTransfer);
-  document.getElementById('decline-btn').addEventListener('click', declineTransfer);
+  // Receive
+  document.getElementById('join-btn').addEventListener('click', joinRoom);
+  document.getElementById('code-input').addEventListener('keypress', e => {
+    if (e.key === 'Enter') joinRoom();
+  });
 
   // Chat
   document.getElementById('chat-send-btn').addEventListener('click', sendChat);
@@ -514,5 +523,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('burn-btn').addEventListener('click', burnAll);
 
+  // Check URL for QR code
+  checkURLCode();
+
+  // Connect
   connectWS();
 });

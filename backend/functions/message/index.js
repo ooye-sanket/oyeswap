@@ -1,5 +1,5 @@
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
-const { DynamoDBDocumentClient, PutCommand, GetCommand, ScanCommand, UpdateCommand, DeleteCommand } = require("@aws-sdk/lib-dynamodb");
+const { DynamoDBDocumentClient, PutCommand, GetCommand, ScanCommand, DeleteCommand, UpdateCommand } = require("@aws-sdk/lib-dynamodb");
 const { ApiGatewayManagementApiClient, PostToConnectionCommand } = require("@aws-sdk/client-apigatewaymanagementapi");
 
 const client = new DynamoDBClient({});
@@ -21,24 +21,6 @@ const send = async (apigw, connectionId, data) => {
   }
 };
 
-const broadcastDevices = async (apigw) => {
-  const result = await db.send(new ScanCommand({
-    TableName: process.env.DEVICES_TABLE,
-    FilterExpression: "#s = :online",
-    ExpressionAttributeNames: { "#s": "status" },
-    ExpressionAttributeValues: { ":online": "online" }
-  }));
-
-  const devices = result.Items || [];
-  const connections = await db.send(new ScanCommand({
-    TableName: process.env.CONNECTIONS_TABLE
-  }));
-
-  for (const conn of (connections.Items || [])) {
-    await send(apigw, conn.connectionId, { type: "devices", list: devices });
-  }
-};
-
 exports.handler = async (event) => {
   const connectionId = event.requestContext.connectionId;
   const domainName = event.requestContext.domainName;
@@ -54,6 +36,12 @@ exports.handler = async (event) => {
 
   const { type } = body;
 
+  // ── Ping keepalive ──
+  if (type === "ping") {
+    return { statusCode: 200, body: "pong" };
+  }
+
+  // ── Register device ──
   if (type === "register") {
     const { clientId, deviceName, deviceType } = body;
     const ttl = Math.floor(Date.now() / 1000) + 86400;
@@ -61,39 +49,78 @@ exports.handler = async (event) => {
       TableName: process.env.DEVICES_TABLE,
       Item: { clientId, connectionId, deviceName, deviceType, status: "online", ttl }
     }));
-    await broadcastDevices(apigw);
     return { statusCode: 200, body: "Registered" };
   }
 
-  if (type === "request-approval") {
-    const { targetClientId, fileName, fileSize, senderName } = body;
-    const target = await db.send(new GetCommand({
-      TableName: process.env.DEVICES_TABLE,
-      Key: { clientId: targetClientId }
+  // ── Create room (sender selects file) ──
+  if (type === "create-room") {
+    const { roomCode, fileName, fileSize } = body;
+    const ttl = Math.floor(Date.now() / 1000) + 300; // 5 min expiry
+
+    await db.send(new PutCommand({
+      TableName: process.env.ROOMS_TABLE,
+      Item: {
+        roomCode,
+        senderConnectionId: connectionId,
+        fileName,
+        fileSize,
+        status: "waiting",
+        createdAt: Date.now(),
+        ttl
+      }
     }));
-    if (!target.Item || !target.Item.connectionId) {
-      return { statusCode: 404, body: "Target not found" };
+
+    return { statusCode: 200, body: "Room created" };
+  }
+
+  // ── Join room (receiver enters code) ──
+  if (type === "join-room") {
+    const { roomCode } = body;
+
+    const result = await db.send(new GetCommand({
+      TableName: process.env.ROOMS_TABLE,
+      Key: { roomCode }
+    }));
+
+    if (!result.Item) {
+      await send(apigw, connectionId, {
+        type: "room-error",
+        message: "Invalid or expired code. Please try again."
+      });
+      return { statusCode: 404, body: "Room not found" };
     }
-    await send(apigw, target.Item.connectionId, {
-      type: "approval-request",
-      fileName, fileSize, senderName,
-      senderConnectionId: connectionId
+
+    const room = result.Item;
+
+    // Tell sender that receiver joined
+    await send(apigw, room.senderConnectionId, {
+      type: "receiver-joined",
+      receiverConnectionId: connectionId,
+      roomCode
     });
-    return { statusCode: 200, body: "Request sent" };
+
+    // Tell receiver the file info + sender connectionId
+    await send(apigw, connectionId, {
+      type: "room-joined",
+      fileName: room.fileName,
+      fileSize: room.fileSize,
+      senderConnectionId: room.senderConnectionId,
+      roomCode
+    });
+
+    // Update room status
+    await db.send(new UpdateCommand({
+      TableName: process.env.ROOMS_TABLE,
+      Key: { roomCode },
+      UpdateExpression: "SET #s = :active, receiverConnectionId = :rcid",
+      ExpressionAttributeNames: { "#s": "status" },
+      ExpressionAttributeValues: { ":active": "active", ":rcid": connectionId }
+    }));
+
+    return { statusCode: 200, body: "Joined" };
   }
 
-  if (type === "approval-response") {
-    const { senderConnectionId, approved, fileName } = body;
-    // ✅ FIX: include receiverConnectionId so sender knows where to send WebRTC offer
-    await send(apigw, senderConnectionId, {
-      type: "approval-result",
-      approved,
-      fileName,
-      receiverConnectionId: connectionId
-    });
-    return { statusCode: 200, body: "Response sent" };
-  }
-
+  // ── WebRTC signaling ──
   if (type === "webrtc-signal") {
     const { targetConnectionId, signal } = body;
     await send(apigw, targetConnectionId, {
@@ -104,22 +131,25 @@ exports.handler = async (event) => {
     return { statusCode: 200, body: "Signal sent" };
   }
 
+  // ── Chat message ──
   if (type === "chat") {
-    const { targetClientId, message, senderName } = body;
-    const safeMessage = message.replace(/[<>]/g, "").substring(0, 1000);
-    const target = await db.send(new GetCommand({
-      TableName: process.env.DEVICES_TABLE,
-      Key: { clientId: targetClientId }
-    }));
-    if (target.Item && target.Item.connectionId) {
-      await send(apigw, target.Item.connectionId, {
-        type: "chat",
-        message: safeMessage,
-        senderName,
-        timestamp: Date.now()
-      });
-    }
-    return { statusCode: 200, body: "Chat sent" };
+    const { targetConnectionId, message, senderName } = body;
+    if (!targetConnectionId) return { statusCode: 400, body: "No target" };
+    const safe = message.replace(/[<>]/g, "").substring(0, 1000);
+    await send(apigw, targetConnectionId, {
+      type: "chat",
+      message: safe,
+      senderName,
+      timestamp: Date.now()
+    });
+    return { statusCode: 200, body: "Sent" };
+  }
+
+  // ── Burn chat ──
+  if (type === "burn-chat") {
+    const { targetConnectionId } = body;
+    await send(apigw, targetConnectionId, { type: "chat-burned" });
+    return { statusCode: 200, body: "Burned" };
   }
 
   return { statusCode: 400, body: "Unknown type" };

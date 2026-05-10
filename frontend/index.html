@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>OyeSwap</title>
+  <title>OyeSwap — Share Files Instantly</title>
   <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="favicon.svg" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -30,20 +31,22 @@
   <!-- Main Grid -->
   <main class="main-grid">
 
-    <!-- Panel 1: Send Files -->
+    <!-- Panel 1: Send -->
     <section class="panel" id="panel-send">
       <div class="panel-header">
         <span class="panel-icon">📤</span>
-        <h2 class="panel-title">Send Files</h2>
+        <h2 class="panel-title">Send File</h2>
+        <span class="panel-hint">P2P · No size limit</span>
       </div>
 
+      <!-- Drop Zone -->
       <div class="drop-zone" id="drop-zone">
         <div class="drop-zone-inner">
           <span class="drop-icon">📁</span>
-          <p class="drop-text">Drag & drop files here</p>
+          <p class="drop-text">Drag & drop any file here</p>
           <p class="drop-sub">or</p>
           <label class="file-btn">
-            Select Files
+            Select File
             <input type="file" id="file-input" hidden />
           </label>
         </div>
@@ -51,19 +54,39 @@
 
       <div id="file-info" class="file-info"></div>
 
-      <div class="section-label">Select device:</div>
-      <div id="send-devices" class="devices-list">
-        <p class="empty-hint">Looking for devices...</p>
-      </div>
-      <div id="selected-target-label" class="selected-target"></div>
-
-      <button class="btn-send" id="send-btn">Send File</button>
-
-      <div id="progress-wrap" class="progress-wrap" style="display:none">
-        <div class="progress-track">
-          <div id="progress-bar" class="progress-bar"></div>
+      <!-- Code Panel — shown after file selected -->
+      <div id="code-panel" class="code-panel" style="display:none">
+        <div class="code-panel-file">
+          <span class="code-file-icon">📄</span>
+          <div>
+            <div id="send-file-name" class="code-filename"></div>
+            <div id="send-file-size" class="code-filesize"></div>
+          </div>
         </div>
-        <p id="progress-label" class="progress-label">Transferring...</p>
+
+        <div class="code-panel-body">
+          <div class="qr-side">
+            <div class="qr-wrap">
+              <img id="qr-img" class="qr-img" src="" alt="QR Code" />
+            </div>
+            <p class="qr-label">Scan to receive</p>
+          </div>
+
+          <div class="code-side">
+            <p class="code-or">or enter code</p>
+            <div class="room-code" id="room-code-display">------</div>
+            <p class="code-timer" id="code-timer">Expires in 5:00</p>
+            <button class="btn-cancel" onclick="cancelSend()">✕ Cancel</button>
+          </div>
+        </div>
+
+        <div id="send-status" class="send-status">Waiting for receiver...</div>
+
+        <div id="progress-wrap" class="progress-wrap" style="display:none">
+          <div class="progress-track">
+            <div id="progress-bar" class="progress-bar"></div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -71,19 +94,45 @@
     <section class="panel" id="panel-receive">
       <div class="panel-header">
         <span class="panel-icon">📥</span>
-        <h2 class="panel-title">Receive</h2>
+        <h2 class="panel-title">Receive File</h2>
+        <span class="panel-hint">Enter code from sender</span>
       </div>
 
-      <div class="section-label">Connected Devices</div>
-      <div id="connected-devices" class="connected-devices">
-        <p class="empty-hint">Waiting for devices...</p>
-      </div>
+      <div class="receive-body">
+        <p class="receive-intro">Ask the sender for their 6-digit code, or scan their QR code.</p>
 
-      <div class="divider"></div>
+        <div class="code-input-wrap">
+          <input
+            id="code-input"
+            class="code-input"
+            type="number"
+            placeholder="Enter 6-digit code"
+            maxlength="6"
+          />
+          <button id="join-btn" class="btn-receive">Receive</button>
+        </div>
 
-      <div class="section-label">Received Files</div>
-      <div id="received-files" class="received-files">
-        <p class="empty-hint">No files received yet</p>
+        <!-- Shown after joining room -->
+        <div id="receive-status" class="receive-status" style="display:none">
+          <div class="recv-file-card">
+            <span class="recv-file-icon">📄</span>
+            <div>
+              <div id="recv-filename" class="recv-filename"></div>
+              <div id="recv-filesize" class="recv-filesize"></div>
+            </div>
+          </div>
+
+          <div class="progress-wrap" id="recv-progress-wrap">
+            <div class="progress-track">
+              <div id="progress-bar-recv" class="progress-bar"></div>
+            </div>
+            <p class="progress-label">Receiving...</p>
+          </div>
+
+          <div id="recv-done" class="recv-done" style="display:none">
+            ✅ File saved to your device!
+          </div>
+        </div>
       </div>
     </section>
 
@@ -92,48 +141,52 @@
       <div class="panel-header">
         <span class="panel-icon">💬</span>
         <h2 class="panel-title">Ephemeral Chat</h2>
-        <span class="chat-active-dot" id="status-dot-chat">● Active</span>
+        <span class="chat-live-badge">● Live</span>
       </div>
 
-      <div class="chat-with-row">
-        <span class="section-label">Chat with:</span>
-        <select id="chat-target" class="chat-select">
-          <option value="">Select a user...</option>
-        </select>
+      <div class="chat-notice">
+        Chat is available once you're connected to a peer via file transfer.
       </div>
 
       <div id="chat-messages" class="chat-messages"></div>
 
       <div class="chat-input-area">
-        <input id="chat-input" class="chat-input" type="text"
-               placeholder="Type your message..." />
+        <input id="chat-input" class="chat-input"
+               type="text" placeholder="Type a message..." />
         <button class="btn-chat-send" id="chat-send-btn">Send</button>
       </div>
 
       <div class="chat-actions">
         <button class="btn-burn" id="burn-btn">🔥 Burn All</button>
-        <button class="btn-leave" onclick="showToast('Left chat')">↪ Leave Chat</button>
+        <button class="btn-leave" onclick="showToast('Left chat')">↪ Leave</button>
       </div>
     </section>
 
   </main>
 
-  <!-- Approval Modal -->
-  <div id="approval-modal" class="modal-overlay">
-    <div class="modal">
-      <div class="modal-icon">📨</div>
-      <h3 class="modal-title">Incoming File</h3>
-      <p class="modal-sender"><strong id="modal-sender"></strong> wants to send you a file</p>
-      <div class="modal-file-info">
-        <span id="modal-filename" class="modal-filename"></span>
-        <span id="modal-filesize" class="modal-filesize"></span>
+  <!-- Chat Section (scroll down) -->
+  <section id="chat-section" class="chat-section-full">
+    <div class="chat-section-inner">
+      <div class="chat-section-header">
+        <span class="panel-icon">💬</span>
+        <h2 class="panel-title">Ephemeral Chat</h2>
+        <span class="chat-live-badge">● Live</span>
       </div>
-      <div class="modal-actions">
-        <button id="accept-btn" class="btn-accept">✅ Accept</button>
-        <button id="decline-btn" class="btn-decline">❌ Decline</button>
+      <div class="chat-notice">
+        Connected to your peer. Messages are not stored anywhere.
+      </div>
+      <div id="chat-messages-full" class="chat-messages chat-messages-full"></div>
+      <div class="chat-input-area">
+        <input id="chat-input-full" class="chat-input"
+               type="text" placeholder="Type a message..." />
+        <button class="btn-chat-send" id="chat-send-full-btn">Send</button>
+      </div>
+      <div class="chat-actions">
+        <button class="btn-burn" onclick="burnAll()">🔥 Burn All</button>
+        <button class="btn-leave" onclick="showToast('Left chat')">↪ Leave</button>
       </div>
     </div>
-  </div>
+  </section>
 
   <!-- Toast -->
   <div id="toast" class="toast"></div>
