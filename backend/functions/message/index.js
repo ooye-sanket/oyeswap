@@ -120,7 +120,6 @@ exports.handler = async (event) => {
     return { statusCode: 200, body: "Joined" };
   }
 
-  // ── WebRTC signaling ──
   if (type === "webrtc-signal") {
     const { targetConnectionId, signal } = body;
     await send(apigw, targetConnectionId, {
@@ -129,27 +128,6 @@ exports.handler = async (event) => {
       fromConnectionId: connectionId
     });
     return { statusCode: 200, body: "Signal sent" };
-  }
-
-  // ── Chat message ──
-  if (type === "chat") {
-    const { targetConnectionId, message, senderName } = body;
-    if (!targetConnectionId) return { statusCode: 400, body: "No target" };
-    const safe = message.replace(/[<>]/g, "").substring(0, 1000);
-    await send(apigw, targetConnectionId, {
-      type: "chat",
-      message: safe,
-      senderName,
-      timestamp: Date.now()
-    });
-    return { statusCode: 200, body: "Sent" };
-  }
-
-  // ── Burn chat ──
-  if (type === "burn-chat") {
-    const { targetConnectionId } = body;
-    await send(apigw, targetConnectionId, { type: "chat-burned" });
-    return { statusCode: 200, body: "Burned" };
   }
 
   return { statusCode: 400, body: "Unknown type" };

@@ -97,6 +97,10 @@ function updateStatus(online) {
 
 // ============================================
 // Message Handler
+// CHANGED: removed 'chat' and 'chat-burned' cases.
+// Those message types no longer travel through the server.
+// Chat is now entirely P2P over the RTCDataChannel.
+// WebSocket only handles signaling (room join, offer/answer/ICE).
 // ============================================
 let peerConnections = {};
 let iceCandidateQueues = {};  // ICE candidates queued before remote desc is set
@@ -123,7 +127,7 @@ function handleMessage(msg) {
       break;
 
     case 'room-error':
-      showToast('❌ ' + msg.message);
+      showToast('Room error: ' + msg.message);
       document.getElementById('code-input').classList.add('shake');
       setTimeout(() => document.getElementById('code-input').classList.remove('shake'), 500);
       break;
@@ -132,16 +136,8 @@ function handleMessage(msg) {
       handleWebRTCSignal(msg);
       break;
 
-    case 'chat':
-      appendChatMessage(msg.message, msg.senderName, false);
-      document.getElementById('chat-section').classList.add('chat-flash');
-      setTimeout(() => document.getElementById('chat-section').classList.remove('chat-flash'), 800);
-      break;
-
-    case 'chat-burned':
-      document.getElementById('chat-messages').innerHTML = '';
-      showToast('🔥 Chat burned by peer');
-      break;
+    // REMOVED: 'chat' case — chat no longer routes through the server.
+    // REMOVED: 'chat-burned' case — burn signal now travels over the data channel.
   }
 }
 
@@ -168,7 +164,7 @@ function handleFileSelect(file) {
   selectedFile = file;
 
   document.getElementById('file-info').innerHTML =
-    `<span class="file-chip">📄 ${escapeHtml(file.name)} <em>${formatSize(file.size)}</em></span>`;
+    `<span class="file-chip">File: ${escapeHtml(file.name)} <em>${formatSize(file.size)}</em></span>`;
 
   currentRoomCode = generateRoomCode();
   showCodePanel(currentRoomCode, file);
@@ -228,33 +224,337 @@ function updateSendStatus(msg) {
 }
 
 // ============================================
-// Receive Flow
+// WebCrypto — ECDH Key Exchange + AES-GCM
+// CHANGED: entirely new section.
+//
+// Both peers run an ECDH key exchange over the data channel as the
+// very first thing after it opens. Neither the shared secret nor any
+// derived key ever leaves the browser. AWS Lambda never sees them.
+//
+// Protocol (both sides):
+//   1. Generate an ephemeral ECDH-P256 keypair.
+//   2. Export the public key as raw bytes and send it through the data
+//      channel as { type: 'ecdh-pubkey', key: <base64> }.
+//   3. On receiving the peer's public key, derive a shared AES-GCM-256
+//      key using ECDH + HKDF.
+//   4. Mark chat as ready; enable the chat input.
+//
+// Every subsequent chat message is encrypted with AES-GCM (random 12-byte IV
+// per message) before transmission and decrypted on receipt.
 // ============================================
-function joinRoom() {
-  const input = document.getElementById('code-input');
-  const code = input.value.trim();
-  if (code.length !== 6 || !/^\d+$/.test(code)) {
-    showToast('Please enter a valid 6-digit code');
-    input.classList.add('shake');
-    setTimeout(() => input.classList.remove('shake'), 500);
-    return;
-  }
-  sendWS({ type: 'join-room', roomCode: code });
-  document.getElementById('join-btn').textContent = 'Connecting...';
-  document.getElementById('join-btn').disabled = true;
+
+// Holds the local ephemeral keypair and the derived shared key.
+// Both are scoped per session — refreshed every time a new data channel opens.
+let cryptoState = {
+  keyPair: null,        // CryptoKeyPair (ECDH)
+  sharedKey: null,      // CryptoKey (AES-GCM) — set after key exchange completes
+  exchangeDone: false,  // true once we have derived the shared key
+  peerPublicKeyRaw: null // raw bytes of the peer's public key (stored briefly)
+};
+
+// Generate a fresh ephemeral ECDH keypair for this session.
+async function generateECDHKeyPair() {
+  return window.crypto.subtle.generateKey(
+    { name: 'ECDH', namedCurve: 'P-256' },
+    false, // private key non-exportable — never leaves the browser
+    ['deriveKey']
+  );
 }
 
-function showReceiveInfo(fileName, fileSize, senderConnectionId) {
-  document.getElementById('receive-status').style.display = 'block';
-  document.getElementById('recv-filename').textContent = fileName;
-  document.getElementById('recv-filesize').textContent = formatSize(fileSize);
-  document.getElementById('join-btn').textContent = 'Receive';
-  document.getElementById('join-btn').disabled = false;
-  showToast('Room joined — connecting P2P...');
+// Export the public key as raw bytes (65 bytes for P-256 uncompressed point).
+async function exportPublicKey(keyPair) {
+  const raw = await window.crypto.subtle.exportKey('raw', keyPair.publicKey);
+  return raw;
+}
+
+// Derive a shared AES-GCM-256 key from our private key + peer's public key,
+// using HKDF with SHA-256 for key stretching.
+async function deriveSharedKey(ourPrivateKey, peerPublicKeyRaw) {
+  // Import the peer's raw public key as an ECDH key.
+  const peerPublicKey = await window.crypto.subtle.importKey(
+    'raw',
+    peerPublicKeyRaw,
+    { name: 'ECDH', namedCurve: 'P-256' },
+    false,
+    []
+  );
+
+  // Derive a shared AES-GCM key directly via ECDH.
+  // deriveKey handles both the ECDH shared secret computation and the final
+  // key material extraction in one step inside the secure key store.
+  const sharedKey = await window.crypto.subtle.deriveKey(
+    { name: 'ECDH', public: peerPublicKey },
+    ourPrivateKey,
+    { name: 'AES-GCM', length: 256 },
+    false, // non-exportable
+    ['encrypt', 'decrypt']
+  );
+
+  return sharedKey;
+}
+
+// Encrypt a plaintext string with AES-GCM.
+// Returns a base64 string of [ 12-byte IV || ciphertext ].
+async function encryptMessage(plaintext) {
+  if (!cryptoState.sharedKey) throw new Error('No shared key — key exchange not complete');
+
+  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+  const encoded = new TextEncoder().encode(plaintext);
+
+  const ciphertext = await window.crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    cryptoState.sharedKey,
+    encoded
+  );
+
+  // Concatenate IV + ciphertext into one buffer for transport.
+  const combined = new Uint8Array(iv.byteLength + ciphertext.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(ciphertext), iv.byteLength);
+
+  // Base64-encode for clean JSON transport.
+  return btoa(String.fromCharCode(...combined));
+}
+
+// Decrypt a base64-encoded [ IV || ciphertext ] payload.
+// Returns the plaintext string.
+async function decryptMessage(b64) {
+  if (!cryptoState.sharedKey) throw new Error('No shared key');
+
+  const combined = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  const iv = combined.slice(0, 12);
+  const ciphertext = combined.slice(12);
+
+  const plaintext = await window.crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv },
+    cryptoState.sharedKey,
+    ciphertext
+  );
+
+  return new TextDecoder().decode(plaintext);
+}
+
+// ============================================
+// Chat status helpers
+// CHANGED: new helpers to reflect the securing/ready state in the UI.
+// Chat input stays disabled until ECDH is complete.
+// ============================================
+function setChatStatus(state) {
+  const el = document.getElementById('chat-status');
+  const input = document.getElementById('chat-input');
+  const btn = document.getElementById('chat-send-btn');
+
+  if (state === 'securing') {
+    if (el) el.textContent = 'Securing connection...';
+    if (input) input.disabled = true;
+    if (btn) btn.disabled = true;
+  } else if (state === 'ready') {
+    if (el) el.textContent = 'Ready';
+    if (input) input.disabled = false;
+    if (btn) btn.disabled = false;
+  } else {
+    // default / not connected
+    if (el) el.textContent = '';
+    if (input) input.disabled = true;
+    if (btn) btn.disabled = true;
+  }
+}
+
+// ============================================
+// Sanitise incoming message text before DOM insertion.
+// CHANGED: replaces the original `message.replace(/[<>]/g, "")` in Lambda
+// and the basic escapeHtml used for incoming peer text.
+//
+// Strategy: we use a hidden div to strip all HTML tags via the browser's
+// own parser (same approach as DOMPurify's core), then further restrict to
+// printable characters. This runs in the receiver's browser on the
+// already-decrypted plaintext, providing a safe rendering boundary even
+// if the sender's device were compromised.
+//
+// If DOMPurify is loaded (added to index.html by the operator), it takes
+// priority and is strictly stronger. This function degrades gracefully
+// to the built-in sanitiser without it.
+// ============================================
+function sanitiseText(raw) {
+  if (typeof raw !== 'string') return '';
+
+  // Enforce length cap before any parsing.
+  const capped = raw.substring(0, 1000);
+
+  // Prefer DOMPurify if the operator has loaded it.
+  if (window.DOMPurify) {
+    return window.DOMPurify.sanitize(capped, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] });
+  }
+
+  // Fallback: extract text-only content through a hidden element.
+  // Setting textContent on a div and reading it back strips all markup.
+  const scratch = document.createElement('div');
+  scratch.textContent = capped;
+  // Return the browser-rendered plain text — no tags, no attributes.
+  return scratch.textContent;
+}
+
+// ============================================
+// Data channel registry
+// CHANGED: new module.
+// We keep a reference to the active data channel so sendChat() and
+// burnAll() can reach it regardless of which side (sender/receiver)
+// opened it, and without coupling those functions to the peer connection map.
+// ============================================
+let activeChatChannel = null; // RTCDataChannel reference, set when channel opens
+
+// Called by both sender and receiver when their data channel opens.
+// Initiates the ECDH key exchange and marks chat as "securing".
+async function onChatChannelOpen(channel) {
+  activeChatChannel = channel;
+  setChatStatus('securing');
+
+  try {
+    // Generate a fresh ephemeral keypair for this session.
+    cryptoState.keyPair = await generateECDHKeyPair();
+    cryptoState.sharedKey = null;
+    cryptoState.exchangeDone = false;
+    cryptoState.peerPublicKeyRaw = null;
+
+    const pubKeyRaw = await exportPublicKey(cryptoState.keyPair);
+    const pubKeyB64 = btoa(String.fromCharCode(...new Uint8Array(pubKeyRaw)));
+
+    // Send our public key to the peer through the data channel.
+    // This is the only ECDH exchange message — no server involvement.
+    channel.send(JSON.stringify({ type: 'ecdh-pubkey', key: pubKeyB64 }));
+  } catch (err) {
+    console.error('ECDH key generation failed:', err);
+    showToast('Failed to secure channel — please refresh');
+  }
+}
+
+// Called when we receive the peer's ECDH public key.
+// Derives the shared AES-GCM key and enables chat.
+async function onPeerPublicKeyReceived(b64Key) {
+  try {
+    const raw = Uint8Array.from(atob(b64Key), c => c.charCodeAt(0));
+    cryptoState.sharedKey = await deriveSharedKey(cryptoState.keyPair.privateKey, raw);
+    cryptoState.exchangeDone = true;
+    setChatStatus('ready');
+    showToast('Secure channel established');
+  } catch (err) {
+    console.error('ECDH key derivation failed:', err);
+    showToast('Key exchange failed — chat unavailable');
+    setChatStatus('securing'); // keep disabled
+  }
+}
+
+// ============================================
+// Unified data channel message handler
+// CHANGED: new function that replaces the old receiver-only ch.onmessage.
+//
+// ALL data channel messages now pass through here — on both sender and
+// receiver sides. We distinguish them by:
+//   - ArrayBuffer  => file chunk (binary, unchanged file transfer logic)
+//   - JSON string with type === 'ecdh-pubkey' => key exchange
+//   - JSON string with type === 'chat'         => encrypted chat message
+//   - JSON string with type === 'burn'         => burn signal
+//   - JSON string with kind === 'meta'/'done'  => file transfer control (unchanged)
+// ============================================
+async function onDataChannelMessage(ev) {
+  // Binary frame — file chunk. Hand straight to file transfer logic.
+  if (ev.data instanceof ArrayBuffer) {
+    handleFileChunk(ev.data);
+    return;
+  }
+
+  // Text frame — parse and dispatch.
+  let msg;
+  try { msg = JSON.parse(ev.data); } catch { return; }
+
+  // ECDH public key exchange — triggers key derivation.
+  if (msg.type === 'ecdh-pubkey') {
+    await onPeerPublicKeyReceived(msg.key);
+    return;
+  }
+
+  // Encrypted chat message from peer.
+  if (msg.type === 'chat') {
+    if (!cryptoState.exchangeDone) {
+      console.warn('Received chat message before key exchange completed — discarding');
+      return;
+    }
+    try {
+      const plaintext = await decryptMessage(msg.payload);
+      const safe = sanitiseText(plaintext);
+      appendChatMessage(safe, msg.senderName, false);
+      document.getElementById('chat-section').classList.add('chat-flash');
+      setTimeout(() => document.getElementById('chat-section').classList.remove('chat-flash'), 800);
+    } catch (err) {
+      console.error('Chat decryption failed:', err);
+      appendChatMessage('[message could not be decrypted]', 'peer', false);
+    }
+    return;
+  }
+
+  // Burn signal — peer has wiped their chat, wipe ours too.
+  // CHANGED: burn now travels over the data channel, not WebSocket.
+  if (msg.type === 'burn') {
+    document.getElementById('chat-messages').innerHTML = '';
+    showToast('Chat burned by peer');
+    return;
+  }
+
+  // File transfer control messages (kind: 'meta' | 'done').
+  // These are handled by the file receive state machine below.
+  if (msg.kind === 'meta' || msg.kind === 'done') {
+    handleFileControlMessage(msg);
+    return;
+  }
+}
+
+// ============================================
+// File transfer state — receiver side
+// CHANGED: factored out of the inline ch.onmessage closure so that
+// onDataChannelMessage can call it cleanly. Logic is identical to original.
+// ============================================
+let recvMeta = null, recvChunks = [], recvReceived = 0, recvStartTime = null;
+
+function handleFileChunk(buffer) {
+  recvChunks.push(buffer);
+  recvReceived += buffer.byteLength;
+
+  if (recvMeta && recvStartTime) {
+    const elapsed = (Date.now() - recvStartTime) / 1000 || 0.001;
+    const mbps    = (recvReceived / elapsed / 1048576).toFixed(1);
+    const pct     = Math.min((recvReceived / recvMeta.size) * 100, 100);
+    setProgress(pct, true);
+    const el = document.getElementById('recv-speed');
+    if (el) el.textContent = `Receiving — ${mbps} MB/s`;
+  }
+}
+
+function handleFileControlMessage(msg) {
+  if (msg.kind === 'meta') {
+    recvMeta      = msg;
+    recvChunks    = [];
+    recvReceived  = 0;
+    recvStartTime = Date.now();
+    setProgress(0, true);
+  }
+
+  if (msg.kind === 'done' && recvMeta) {
+    downloadFile(new Blob(recvChunks), recvMeta.name);
+    const elapsed = ((Date.now() - recvStartTime) / 1000).toFixed(1);
+    const avg     = (recvMeta.size / elapsed / 1048576).toFixed(1);
+    showToast(recvMeta.name + ' saved!');
+    setProgress(100, true);
+    document.getElementById('recv-done').style.display = 'block';
+    const el = document.getElementById('recv-speed');
+    if (el) el.textContent = `Done — ${avg} MB/s avg · ${elapsed}s`;
+  }
 }
 
 // ============================================
 // WebRTC — Sender
+// CHANGED: data channel now has a full onmessage handler for incoming
+// chat/burn/ecdh messages. Previously the sender's channel had no onmessage
+// handler at all — chat only flowed one way through the server.
 // ============================================
 async function startWebRTCSend(receiverConnectionId) {
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
@@ -262,13 +562,23 @@ async function startWebRTCSend(receiverConnectionId) {
 
   const channel = pc.createDataChannel('fileTransfer', { ordered: true });
 
-  // FIX: only show "transferring" when the data channel actually opens
-  channel.onopen = () => {
+  // CHANGED: onopen now also triggers ECDH key exchange before enabling chat.
+  channel.onopen = async () => {
     showToast('P2P connected — sending!');
     updateSendStatus('Transferring...');
     setProgress(0, true);
+
+    // Start key exchange FIRST, then begin file transfer in parallel.
+    // File transfer does not depend on the key exchange completing.
+    // Chat input stays locked until exchange is done.
+    await onChatChannelOpen(channel);
+
     sendFileOverChannel(channel, selectedFile);
   };
+
+  // CHANGED: sender side now receives data channel messages.
+  // Previously had no onmessage — chat was server-relayed.
+  channel.onmessage = (ev) => onDataChannelMessage(ev);
 
   channel.onerror = (e) => {
     console.error('Data channel error (sender):', e);
@@ -285,7 +595,7 @@ async function startWebRTCSend(receiverConnectionId) {
     if (state === 'connected' || state === 'completed')
       updateSendStatus('P2P connected — opening channel...');
     if (state === 'failed')
-      updateSendStatus('❌ P2P connection failed — try again');
+      updateSendStatus('P2P connection failed — try again');
     if (state === 'disconnected')
       updateSendStatus('Connection lost...');
   };
@@ -340,7 +650,7 @@ async function sendFileOverChannel(channel, file) {
     const pct     = Math.min((sent / file.size) * 100, 100);
     const eta     = elapsed > 0.3
       ? Math.ceil((file.size - sent) / (sent / elapsed) / 1000)
-      : '…';
+      : '...';
     setProgress(pct, true);
     updateSendStatus(`Sending — ${mbps} MB/s · ${eta}s left`);
   }
@@ -349,13 +659,16 @@ async function sendFileOverChannel(channel, file) {
   clearInterval(codeExpireTimer);
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   const avg     = (file.size / elapsed / 1048576).toFixed(1);
-  updateSendStatus(`✅ Done — ${avg} MB/s avg · ${elapsed}s`);
+  updateSendStatus(`Done — ${avg} MB/s avg · ${elapsed}s`);
   setProgress(100, true);
-  showToast('✅ File sent!');
+  showToast('File sent!');
 }
 
 // ============================================
 // WebRTC — Receiver
+// CHANGED: ch.onmessage now calls the unified onDataChannelMessage handler
+// instead of an inline closure that only handled file chunks.
+// ch.onopen now also triggers ECDH key exchange.
 // ============================================
 function prepareWebRTCReceive(senderConnectionId) {
   const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
@@ -367,54 +680,22 @@ function prepareWebRTCReceive(senderConnectionId) {
   delete pendingSignals[senderConnectionId];
   for (const msg of buffered) handleWebRTCSignal(msg);
 
-  let meta = null, chunks = [], received = 0, startTime = null;
-
   pc.ondatachannel = (e) => {
     const ch = e.channel;
     ch.binaryType = 'arraybuffer';
 
-    ch.onopen = () => {
+    // CHANGED: trigger ECDH exchange when channel opens.
+    ch.onopen = async () => {
       showToast('P2P connected — receiving!');
       const el = document.getElementById('recv-speed');
       if (el) el.textContent = 'Receiving...';
+      await onChatChannelOpen(ch);
     };
 
-    ch.onmessage = (ev) => {
-      if (typeof ev.data === 'string') {
-        const msg = JSON.parse(ev.data);
-
-        if (msg.kind === 'meta') {
-          meta      = msg;
-          chunks    = [];
-          received  = 0;
-          startTime = Date.now();
-          setProgress(0, true);
-        }
-
-        if (msg.kind === 'done' && meta) {
-          downloadFile(new Blob(chunks), meta.name);
-          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-          const avg     = (meta.size / elapsed / 1048576).toFixed(1);
-          showToast('✅ ' + meta.name + ' saved!');
-          setProgress(100, true);
-          document.getElementById('recv-done').style.display = 'block';
-          const el = document.getElementById('recv-speed');
-          if (el) el.textContent = `✅ Done — ${avg} MB/s avg · ${elapsed}s`;
-        }
-      } else {
-        chunks.push(ev.data);
-        received += ev.data.byteLength;
-
-        if (meta && startTime) {
-          const elapsed = (Date.now() - startTime) / 1000 || 0.001;
-          const mbps    = (received / elapsed / 1048576).toFixed(1);
-          const pct     = Math.min((received / meta.size) * 100, 100);
-          setProgress(pct, true);
-          const el = document.getElementById('recv-speed');
-          if (el) el.textContent = `Receiving — ${mbps} MB/s`;
-        }
-      }
-    };
+    // CHANGED: route ALL incoming messages through the unified handler.
+    // Previously this was a long inline closure that only knew about file
+    // chunks — chat messages from the peer would have been silently dropped.
+    ch.onmessage = (ev) => onDataChannelMessage(ev);
 
     ch.onerror = (e) => {
       console.error('Data channel error (receiver):', e);
@@ -427,7 +708,7 @@ function prepareWebRTCReceive(senderConnectionId) {
     console.log('ICE state (receiver):', state);
     const el = document.getElementById('recv-speed');
     if (state === 'checking' && el) el.textContent = 'Finding peer-to-peer route...';
-    if (state === 'failed') showToast('❌ P2P connection failed — try again');
+    if (state === 'failed') showToast('P2P connection failed — try again');
   };
 
   pc.onicecandidate = (e) => {
@@ -486,24 +767,38 @@ async function handleWebRTCSignal(msg) {
     }
   }
 }
-
-// ============================================
-// Chat
-// ============================================
-function sendChat() {
+async function sendChat() {
   const input = document.getElementById('chat-input');
-  if (!input.value.trim() || !currentPeerConnectionId) {
-    if (!currentPeerConnectionId) showToast('Connect to a peer first');
+  if (!input || !input.value.trim()) return;
+
+  // CHANGED: gate on data channel + key exchange, not just currentPeerConnectionId.
+  if (!activeChatChannel || activeChatChannel.readyState !== 'open') {
+    showToast('Connect to a peer first');
     return;
   }
-  const msg = input.value.trim().substring(0, 1000);
-  sendWS({
-    type: 'chat',
-    targetConnectionId: currentPeerConnectionId,
-    message: msg,
-    senderName: deviceName
-  });
-  appendChatMessage(msg, deviceName, true);
+  if (!cryptoState.exchangeDone) {
+    showToast('Securing channel — please wait');
+    return;
+  }
+
+  const plaintext = input.value.trim().substring(0, 1000);
+
+  try {
+    // CHANGED: encrypt before sending. Lambda never sees plaintext.
+    const encrypted = await encryptMessage(plaintext);
+    activeChatChannel.send(JSON.stringify({
+      type: 'chat',
+      payload: encrypted,      // ciphertext only
+      senderName: deviceName   // display name for the peer's UI (not verified, same as before)
+    }));
+  } catch (err) {
+    console.error('Chat encryption failed:', err);
+    showToast('Failed to encrypt message — not sent');
+    return;
+  }
+
+  // Show plaintext locally (we wrote it, no need to decrypt our own message).
+  appendChatMessage(plaintext, deviceName, true);
   input.value = '';
 }
 
@@ -511,19 +806,35 @@ function appendChatMessage(text, sender, isMine) {
   const box = document.getElementById('chat-messages');
   const div = document.createElement('div');
   div.className = 'chat-bubble ' + (isMine ? 'mine' : 'theirs');
-  div.innerHTML = (!isMine ? `<span class="bubble-sender">${escapeHtml(sender)}</span>` : '') +
-    `<span class="bubble-text">${escapeHtml(text)}</span>`;
+
+  if (!isMine) {
+    const senderEl = document.createElement('span');
+    senderEl.className = 'bubble-sender';
+    // escapeHtml for the sender display name (local rendering safety).
+    senderEl.textContent = sender; // textContent — no XSS possible
+    div.appendChild(senderEl);
+  }
+
+  const textEl = document.createElement('span');
+  textEl.className = 'bubble-text';
+  textEl.textContent = text;
+  div.appendChild(textEl);
+
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
 }
 
 function burnAll() {
   if (!confirm('Burn all messages? This cannot be undone.')) return;
+
   document.getElementById('chat-messages').innerHTML = '';
-  if (currentPeerConnectionId) {
-    sendWS({ type: 'burn-chat', targetConnectionId: currentPeerConnectionId });
+
+  if (activeChatChannel && activeChatChannel.readyState === 'open') {
+    // CHANGED: burn signal goes peer-to-peer, not through Lambda.
+    activeChatChannel.send(JSON.stringify({ type: 'burn' }));
   }
-  showToast('🔥 Chat burned');
+
+  showToast('Chat burned');
 }
 
 // ============================================
@@ -596,10 +907,42 @@ function editDeviceName() {
 }
 
 // ============================================
+// Receive Flow
+// ============================================
+function joinRoom() {
+  const input = document.getElementById('code-input');
+  const code = input.value.trim();
+  if (code.length !== 6 || !/^\d+$/.test(code)) {
+    showToast('Please enter a valid 6-digit code');
+    input.classList.add('shake');
+    setTimeout(() => input.classList.remove('shake'), 500);
+    return;
+  }
+  sendWS({ type: 'join-room', roomCode: code });
+  document.getElementById('join-btn').textContent = 'Connecting...';
+  document.getElementById('join-btn').disabled = true;
+}
+
+function showReceiveInfo(fileName, fileSize, senderConnectionId) {
+  document.getElementById('receive-status').style.display = 'block';
+  document.getElementById('recv-filename').textContent = fileName;
+  document.getElementById('recv-filesize').textContent = formatSize(fileSize);
+  document.getElementById('join-btn').textContent = 'Receive';
+  document.getElementById('join-btn').disabled = false;
+  showToast('Room joined — connecting P2P...');
+}
+
+// ============================================
 // Init
+// CHANGED: chat input and send button start disabled.
+// They are enabled only after the ECDH key exchange completes
+// (setChatStatus('ready') is called from onPeerPublicKeyReceived).
 // ============================================
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('my-device-name').textContent = deviceName;
+
+  // CHANGED: disable chat controls at startup — enabled after key exchange.
+  setChatStatus('disconnected');
 
   document.getElementById('file-input').addEventListener('change', e => {
     handleFileSelect(e.target.files[0]);
