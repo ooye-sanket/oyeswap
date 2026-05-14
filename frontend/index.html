@@ -1,196 +1,663 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>OyeSwap — Share Files Instantly</title>
+  <title>OyeeSwap — Secure File Transfer</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="favicon.svg" />
-  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Geist:wght@400;500;600&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+  <script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "surface-dim": "#0e0e12",
+            "surface-container-lowest": "#0e0e12",
+            "surface-container-low": "#1b1b1f",
+            "surface-container": "#1f1f23",
+            "surface-container-high": "#2a292e",
+            "surface-container-highest": "#353439",
+            "surface": "#131317",
+            "surface-bright": "#39393d",
+            "surface-variant": "#353439",
+            "background": "#0B0B0F",
+            "on-background": "#e4e1e7",
+            "on-surface": "#e4e1e7",
+            "on-surface-variant": "#c9c4d9",
+            "outline": "#938ea2",
+            "outline-variant": "#484556",
+            "primary": "#c9bfff",
+            "primary-container": "#6d4aff",
+            "on-primary": "#2f009c",
+            "on-primary-container": "#f4eeff",
+            "primary-fixed": "#e5deff",
+            "primary-fixed-dim": "#c9bfff",
+            "inverse-primary": "#5d36ef",
+            "secondary": "#adc6ff",
+            "secondary-container": "#0566d9",
+            "on-secondary": "#002e6a",
+            "on-secondary-container": "#e6ecff",
+            "tertiary": "#4ae176",
+            "tertiary-container": "#007f37",
+            "on-tertiary": "#003915",
+            "on-tertiary-container": "#c7ffca",
+            "tertiary-fixed-dim": "#4ae176",
+            "error": "#ffb4ab",
+            "error-container": "#93000a",
+            "on-error": "#690005",
+            "on-error-container": "#ffdad6",
+            "inverse-surface": "#e4e1e7",
+            "inverse-on-surface": "#303034",
+            "surface-tint": "#c9bfff",
+          },
+          borderRadius: {
+            DEFAULT: "0.25rem",
+            lg: "0.5rem",
+            xl: "0.75rem",
+            "2xl": "1rem",
+            full: "9999px",
+          },
+          fontFamily: {
+            "code-sm": ["Geist", "monospace"],
+            "headline-lg-mobile": ["Inter", "sans-serif"],
+            "headline-lg": ["Inter", "sans-serif"],
+            "body-md": ["Inter", "sans-serif"],
+            "display-lg": ["Inter", "sans-serif"],
+            "label-caps": ["Geist", "sans-serif"],
+          },
+          fontSize: {
+            "code-sm": ["14px", { lineHeight: "20px", letterSpacing: "0.02em", fontWeight: "500" }],
+            "headline-lg-mobile": ["24px", { lineHeight: "32px", letterSpacing: "-0.02em", fontWeight: "600" }],
+            "headline-lg": ["32px", { lineHeight: "40px", letterSpacing: "-0.02em", fontWeight: "600" }],
+            "body-md": ["16px", { lineHeight: "24px", letterSpacing: "0em", fontWeight: "400" }],
+            "display-lg": ["48px", { lineHeight: "56px", letterSpacing: "-0.04em", fontWeight: "700" }],
+            "label-caps": ["12px", { lineHeight: "16px", letterSpacing: "0.06em", fontWeight: "600" }],
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    * { box-sizing: border-box; }
+
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    }
+    .fill-icon {
+      font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    }
+
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+
+    .glass-panel {
+      background: rgba(20, 20, 25, 0.75);
+      backdrop-filter: blur(32px);
+      -webkit-backdrop-filter: blur(32px);
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .mesh-gradient {
+      background:
+        radial-gradient(ellipse 60% 40% at 20% 20%, rgba(109,74,255,0.12) 0%, transparent 60%),
+        radial-gradient(ellipse 50% 50% at 80% 80%, rgba(59,130,246,0.10) 0%, transparent 60%),
+        radial-gradient(ellipse 40% 30% at 60% 10%, rgba(74,225,118,0.05) 0%, transparent 50%);
+    }
+
+    @keyframes orbit-pulse {
+      0%, 100% { opacity: 0.3; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(1.04); }
+    }
+    .orbit-pulse { animation: orbit-pulse 4s ease-in-out infinite; }
+    .orbit-pulse-slow { animation: orbit-pulse 6s ease-in-out infinite reverse; }
+
+    @keyframes spin-slow { to { transform: rotate(360deg); } }
+    .spin-slow { animation: spin-slow 12s linear infinite; }
+    .spin-slow-rev { animation: spin-slow 18s linear infinite reverse; }
+
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+    .active-nav {
+      background: rgba(109,74,255,0.2);
+      color: #c9bfff;
+      box-shadow: 0 4px 20px rgba(109,74,255,0.3);
+    }
+
+    .card-hover {
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .card-hover:hover {
+      border-color: rgba(109,74,255,0.35);
+      box-shadow: 0 0 24px rgba(109,74,255,0.12);
+    }
+
+    .progress-gradient {
+      background: linear-gradient(90deg, #6d4aff, #3b82f6);
+      box-shadow: 0 0 8px rgba(109,74,255,0.4);
+      transition: width 0.3s ease;
+    }
+
+    @keyframes shake {
+      0%,100% { transform: translateX(0); }
+      25% { transform: translateX(-6px); }
+      75% { transform: translateX(6px); }
+    }
+    .shake { animation: shake 0.4s ease; }
+
+    .drop-zone-active { border-color: rgba(109,74,255,0.6) !important; background: rgba(109,74,255,0.06); }
+
+    .toast-show { opacity: 1 !important; transform: translateY(0) !important; }
+    #toast.show { opacity: 1 !important; transform: translate(-50%, 0) !important; }
+
+    /* Chat bubbles */
+    .chat-bubble { display: flex; flex-direction: column; max-width: 80%; }
+    .chat-bubble.mine { align-self: flex-end; align-items: flex-end; }
+    .chat-bubble.theirs { align-self: flex-start; align-items: flex-start; }
+    .bubble-sender { font-family: 'Geist', monospace; font-size: 11px; letter-spacing: 0.06em; font-weight: 600; color: rgba(201,196,217,0.5); text-transform: uppercase; margin-bottom: 4px; }
+    .bubble-text { font-family: 'Inter', sans-serif; font-size: 15px; line-height: 22px; }
+
+    @keyframes chat-flash {
+      0% { background-color: transparent; }
+      30% { background-color: rgba(109,74,255,0.06); }
+      100% { background-color: transparent; }
+    }
+    .chat-flash { animation: chat-flash 0.8s ease; }
+
+    /* Status dot states */
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .status-dot.online { background: #4ae176; box-shadow: 0 0 6px rgba(74,225,118,0.6); }
+    .status-dot.offline { background: #938ea2; }
+  </style>
 </head>
-<body>
+<body class="bg-background text-on-surface h-screen overflow-hidden flex mesh-gradient">
 
-  <!-- Header -->
-  <header class="header">
-    <div class="header-inner">
-      <div class="logo-area">
-        <span class="logo">⚡ OyeSwap</span>
-        <div class="status-pill">
-          <span class="status-dot offline" id="status-dot"></span>
-          <span class="status-text" id="status-text">Connecting...</span>
-        </div>
-      </div>
-      <div class="device-area">
-        <span class="device-label">Your device:</span>
-        <span class="device-name" id="my-device-name">Loading...</span>
-        <button class="edit-btn" onclick="editDeviceName()" title="Edit name">✏️</button>
-      </div>
-    </div>
-  </header>
+  <!-- ═══════════════════════════════════════
+       LEFT SIDEBAR (fixed 280px)
+  ════════════════════════════════════════ -->
+  <aside class="w-[280px] flex-shrink-0 bg-surface-container-lowest border-r border-outline-variant/20 flex flex-col h-full z-50">
 
-  <!-- Main Grid -->
-  <main class="main-grid">
-
-    <!-- Panel 1: Send -->
-    <section class="panel" id="panel-send">
-      <div class="panel-header">
-        <span class="panel-icon">📤</span>
-        <h2 class="panel-title">Send File</h2>
-        <span class="panel-hint">P2P · No size limit</span>
-      </div>
-
-      <!-- Drop Zone -->
-      <div class="drop-zone" id="drop-zone">
-        <div class="drop-zone-inner">
-          <span class="drop-icon">📁</span>
-          <p class="drop-text">Drag & drop any file here</p>
-          <p class="drop-sub">or</p>
-          <label class="file-btn">
-            Select File
-            <input type="file" id="file-input" hidden />
-          </label>
-        </div>
-      </div>
-
-      <div id="file-info" class="file-info"></div>
-
-      <!-- Code Panel — shown after file selected -->
-      <div id="code-panel" class="code-panel" style="display:none">
-        <div class="code-panel-file">
-          <span class="code-file-icon">📄</span>
-          <div>
-            <div id="send-file-name" class="code-filename"></div>
-            <div id="send-file-size" class="code-filesize"></div>
-          </div>
-        </div>
-
-        <div class="code-panel-body">
-          <div class="qr-side">
-            <div class="qr-wrap">
-              <img id="qr-img" class="qr-img" src="" alt="QR Code" />
-            </div>
-            <p class="qr-label">Scan to receive</p>
-          </div>
-
-          <div class="code-side">
-            <p class="code-or">or enter code</p>
-            <div class="room-code" id="room-code-display">------</div>
-            <p class="code-timer" id="code-timer">Expires in 5:00</p>
-            <button class="btn-cancel" onclick="cancelSend()">✕ Cancel</button>
-          </div>
-        </div>
-
-        <div id="send-status" class="send-status">Waiting for receiver...</div>
-
-        <div id="progress-wrap" class="progress-wrap" style="display:none">
-          <div class="progress-track">
-            <div id="progress-bar" class="progress-bar"></div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Panel 2: Receive -->
-    <section class="panel" id="panel-receive">
-      <div class="panel-header">
-        <span class="panel-icon">📥</span>
-        <h2 class="panel-title">Receive File</h2>
-        <span class="panel-hint">Enter code from sender</span>
-      </div>
-
-      <div class="receive-body">
-        <p class="receive-intro">Ask the sender for their 6-digit code, or scan their QR code.</p>
-
-        <div class="code-input-wrap">
-          <input
-            id="code-input"
-            class="code-input"
-            type="number"
-            placeholder="Enter 6-digit code"
-            maxlength="6"
-          />
-          <button id="join-btn" class="btn-receive">Receive</button>
-        </div>
-
-        <!-- Shown after joining room -->
-        <div id="receive-status" class="receive-status" style="display:none">
-          <div class="recv-file-card">
-            <span class="recv-file-icon">📄</span>
-            <div>
-              <div id="recv-filename" class="recv-filename"></div>
-              <div id="recv-filesize" class="recv-filesize"></div>
-            </div>
-          </div>
-
-          <div class="progress-wrap" id="recv-progress-wrap">
-            <div class="progress-track">
-              <div id="progress-bar-recv" class="progress-bar"></div>
-            </div>
-            <p class="progress-label" id="recv-speed">Receiving...</p>
-          </div>
-
-          <div id="recv-done" class="recv-done" style="display:none">
-            ✅ File saved to your device!
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Panel 3: Chat -->
-    <section class="panel" id="panel-chat">
-      <div class="panel-header">
-        <span class="panel-icon">💬</span>
-        <h2 class="panel-title">Ephemeral Chat</h2>
-        <span class="chat-live-badge">● Live</span>
-      </div>
-
-      <div class="chat-notice">
-        Chat is available once you're connected to a peer via file transfer.
-      </div>
-      <span id="chat-status" style="font-size:12px; opacity:0.6; padding: 0 4px;"></span>
-
-      <div id="chat-messages" class="chat-messages"></div>
-
-      <div class="chat-input-area">
-        <input id="chat-input" class="chat-input"
-               type="text" placeholder="Type a message..." />
-        <button class="btn-chat-send" id="chat-send-btn">Send</button>
-      </div>
-
-      <div class="chat-actions">
-        <button class="btn-burn" id="burn-btn">🔥 Burn All</button>
-        <button class="btn-leave" onclick="showToast('Left chat')">↪ Leave</button>
-      </div>
-    </section>
-
-  </main>
-
-  <!-- Chat Section (scroll down) -->
-  <section id="chat-section" class="chat-section-full">
-    <div class="chat-section-inner">
-      <div class="chat-section-header">
-        <span class="panel-icon">💬</span>
-        <h2 class="panel-title">Ephemeral Chat</h2>
-        <span class="chat-live-badge">● Live</span>
-      </div>
-      <div class="chat-notice">
-        Connected to your peer. Messages are not stored anywhere.
-      </div>
-      <div id="chat-messages-full" class="chat-messages chat-messages-full"></div>
-      <div class="chat-input-area">
-        <input id="chat-input-full" class="chat-input"
-               type="text" placeholder="Type a message..." />
-        <button class="btn-chat-send" id="chat-send-full-btn">Send</button>
-      </div>
-      <div class="chat-actions">
-        <button class="btn-burn" onclick="burnAll()">🔥 Burn All</button>
-        <button class="btn-leave" onclick="showToast('Left chat')">↪ Leave</button>
+    <!-- Logo -->
+    <div class="px-6 pt-7 pb-6">
+      <div class="flex flex-col gap-0.5">
+        <span class="font-display-lg text-[22px] font-bold tracking-tight leading-none"
+          style="background: linear-gradient(135deg, #c9bfff, #adc6ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">
+          SWAP
+        </span>
+        <span class="font-label-caps text-label-caps text-on-surface-variant/50 tracking-widest uppercase">
+          SECURE HUB
+        </span>
       </div>
     </div>
-  </section>
 
-  <!-- Toast -->
-  <div id="toast" class="toast"></div>
+    <!-- Nav Items -->
+    <nav class="flex flex-col gap-1 px-3 flex-1">
+      <!-- Transfer -->
+      <button id="nav-transfer" onclick="showView('transfer')"
+        class="active-nav flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all duration-200 group">
+        <span class="material-symbols-outlined text-[20px]">upload_file</span>
+        <span class="font-label-caps text-label-caps tracking-wider uppercase">Transfer</span>
+      </button>
+
+      <!-- Messages -->
+      <button id="nav-messages" onclick="showView('chat')"
+        class="flex items-center gap-3 px-4 py-3 rounded-xl text-on-surface-variant/70 hover:text-on-surface hover:bg-white/5 text-left transition-all duration-200 group">
+        <span class="material-symbols-outlined fill-icon text-[20px]">forum</span>
+        <span class="font-label-caps text-label-caps tracking-wider uppercase">Messages</span>
+      </button>
+
+      <!-- Vault (Coming Soon) -->
+      <button onclick="showToast('Coming soon')"
+        class="flex items-center gap-3 px-4 py-3 rounded-xl text-on-surface-variant/50 hover:text-on-surface-variant hover:bg-white/5 text-left transition-all duration-200">
+        <span class="material-symbols-outlined text-[20px]">enhanced_encryption</span>
+        <span class="font-label-caps text-label-caps tracking-wider uppercase">Vault</span>
+      </button>
+
+      <!-- Settings (Coming Soon) -->
+      <button onclick="showToast('Coming soon')"
+        class="flex items-center gap-3 px-4 py-3 rounded-xl text-on-surface-variant/50 hover:text-on-surface-variant hover:bg-white/5 text-left transition-all duration-200">
+        <span class="material-symbols-outlined text-[20px]">settings</span>
+        <span class="font-label-caps text-label-caps tracking-wider uppercase">Settings</span>
+      </button>
+    </nav>
+
+    <!-- Profile / Bottom -->
+    <div class="px-4 py-5 border-t border-outline-variant/20 mt-auto">
+      <!-- Device identity -->
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+          style="background: linear-gradient(135deg, rgba(109,74,255,0.5), rgba(59,130,246,0.4)); border: 1px solid rgba(201,191,255,0.2);">
+          <span class="material-symbols-outlined text-primary text-[18px]">person</span>
+        </div>
+        <div class="flex flex-col min-w-0">
+          <span id="my-device-name" class="font-body-md text-sm font-semibold text-on-surface truncate">Loading...</span>
+          <span class="font-label-caps text-[10px] text-tertiary tracking-wider uppercase">ECC-256 Enabled</span>
+        </div>
+      </div>
+
+      <!-- Status row -->
+      <div class="flex items-center justify-between">
+        <span class="font-label-caps text-[10px] text-on-surface-variant/50">v1.0</span>
+        <div class="flex items-center gap-1.5">
+          <span id="status-dot" class="status-dot offline"></span>
+          <span id="status-text" class="font-label-caps text-[10px] text-on-surface-variant/60 uppercase tracking-wider">Connecting...</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ═══════════════════════════════════════
+       MAIN AREA (flex-1, flex-col)
+  ════════════════════════════════════════ -->
+  <div class="flex-1 flex flex-col h-full overflow-hidden">
+
+    <!-- TOP APP BAR -->
+    <header class="flex-shrink-0 h-16 glass-panel border-b border-white/5 flex items-center justify-between px-6 z-40">
+      <!-- Left: encryption badge -->
+      <div class="flex items-center gap-2.5">
+        <span class="material-symbols-outlined text-primary-container text-[20px]">shield_lock</span>
+        <span class="font-label-caps text-label-caps text-on-surface-variant/50 tracking-widest uppercase">NODE_ENCRYPTION_ACTIVE</span>
+      </div>
+
+      <!-- Right: controls -->
+      <div class="flex items-center gap-3">
+        <!-- P2P speed pill -->
+        <div id="p2p-speed" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container border border-outline-variant/30">
+          <span class="material-symbols-outlined text-tertiary text-[14px]">sensors</span>
+          <span class="font-label-caps text-[10px] text-on-surface-variant/70 uppercase tracking-wider">P2P: Connecting...</span>
+        </div>
+
+        <!-- Notifications -->
+        <button class="w-9 h-9 flex items-center justify-center rounded-xl text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-colors">
+          <span class="material-symbols-outlined text-[20px]">notifications</span>
+        </button>
+
+        <!-- Search -->
+        <button class="w-9 h-9 flex items-center justify-center rounded-xl text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-colors">
+          <span class="material-symbols-outlined text-[20px]">search</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- MAIN CANVAS (scrollable) -->
+    <main class="flex-1 overflow-hidden relative">
+
+      <!-- ════════════════════════════
+           TRANSFER VIEW
+      ═════════════════════════════ -->
+      <div id="view-transfer" class="h-full overflow-y-auto scrollbar-hide" style="display: flex; flex-direction: column;">
+
+        <!-- Hero section -->
+        <div class="relative flex flex-col items-center justify-center pt-12 pb-8 px-6 text-center">
+          <!-- Orbit decorations -->
+          <div class="absolute inset-0 flex items-center justify-center pointer-events-none" style="top: -20px;">
+            <div class="w-64 h-64 rounded-full border border-primary-container/15 border-dashed orbit-pulse spin-slow" style="position: absolute;"></div>
+            <div class="w-44 h-44 rounded-full border border-secondary/15 border-dashed orbit-pulse-slow spin-slow-rev" style="position: absolute;"></div>
+          </div>
+
+          <div class="relative z-10">
+            <h1 class="font-display-lg text-display-lg text-on-surface mb-3" style="font-size: clamp(28px, 4vw, 48px); background: linear-gradient(135deg, #e4e1e7 40%, #c9bfff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">
+              Private File Orbit
+            </h1>
+            <p class="font-body-md text-on-surface-variant/70 max-w-md mx-auto">
+              Encrypted, peer-to-peer file sharing. Zero servers. Zero traces.
+            </p>
+          </div>
+        </div>
+
+        <!-- Two-column card grid -->
+        <div class="px-6 pb-8 w-full max-w-[1040px] mx-auto">
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+
+            <!-- ──────────────────────
+                 SEND FILE CARD
+            ─────────────────────── -->
+            <div class="glass-panel rounded-2xl p-6 card-hover border border-white/5 min-h-[380px] flex flex-col gap-5">
+              <!-- Card header -->
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background: rgba(109,74,255,0.15); border: 1px solid rgba(109,74,255,0.25);">
+                  <span class="material-symbols-outlined fill-icon text-primary-container text-[20px]">send</span>
+                </div>
+                <div>
+                  <h2 class="font-headline-lg-mobile text-[16px] font-semibold text-on-surface">Send File</h2>
+                  <p class="font-label-caps text-[10px] text-on-surface-variant/50 uppercase tracking-wider">Select a file to generate a secure transfer code</p>
+                </div>
+              </div>
+
+              <!-- Drop Zone -->
+              <div id="drop-zone"
+                class="flex-1 flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-outline-variant/40 hover:border-primary-container/40 transition-colors cursor-pointer min-h-[140px] p-6 text-center"
+                style="background: rgba(109,74,255,0.03);">
+                <div class="w-12 h-12 rounded-xl flex items-center justify-center" style="background: rgba(109,74,255,0.1);">
+                  <span class="material-symbols-outlined text-primary-container text-[24px]">upload_file</span>
+                </div>
+                <div>
+                  <p class="font-body-md text-sm text-on-surface/80 mb-1">Drag &amp; drop any file here</p>
+                  <p class="font-label-caps text-[10px] text-on-surface-variant/40 uppercase">or</p>
+                </div>
+                <label class="cursor-pointer px-4 py-2 rounded-full border border-primary-container/40 text-primary font-label-caps text-label-caps tracking-wider uppercase hover:bg-primary-container/10 transition-colors">
+                  Select File
+                  <input type="file" id="file-input" hidden />
+                </label>
+              </div>
+
+              <!-- File info (shown after selection) -->
+              <div id="file-info" class="font-label-caps text-[11px] text-on-surface-variant/70"></div>
+
+              <!-- Code Panel (hidden until file selected) -->
+              <div id="code-panel" style="display:none;" class="flex flex-col gap-4">
+                <!-- File row -->
+                <div class="flex items-center gap-3 p-3 rounded-xl bg-surface-container border border-outline-variant/20">
+                  <span class="material-symbols-outlined text-primary-container text-[20px]">description</span>
+                  <div class="min-w-0 flex-1">
+                    <div id="send-file-name" class="font-body-md text-sm font-semibold text-on-surface truncate"></div>
+                    <div id="send-file-size" class="font-label-caps text-[10px] text-on-surface-variant/60"></div>
+                  </div>
+                </div>
+
+                <!-- QR + code -->
+                <div class="flex gap-4 items-start">
+                  <!-- QR -->
+                  <div class="flex flex-col items-center gap-1.5">
+                    <div class="rounded-xl overflow-hidden border border-outline-variant/20 p-1" style="background: #16161f;">
+                      <img id="qr-img" src="" alt="QR Code" class="w-[100px] h-[100px] rounded-lg" />
+                    </div>
+                    <span class="font-label-caps text-[10px] text-on-surface-variant/50 uppercase tracking-wider">Scan to receive</span>
+                  </div>
+
+                  <!-- Code -->
+                  <div class="flex-1 flex flex-col gap-2">
+                    <span class="font-label-caps text-[10px] text-on-surface-variant/50 uppercase tracking-wider">or enter code</span>
+                    <div id="room-code-display" class="font-code-sm text-[28px] font-bold tracking-[0.25em] text-primary" style="font-family: 'Geist', monospace; letter-spacing: 0.2em;">
+                      ------
+                    </div>
+                    <p id="code-timer" class="font-label-caps text-[10px] text-on-surface-variant/50">Expires in 5:00</p>
+                    <button onclick="cancelSend()"
+                      class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-error/30 text-error hover:bg-error/10 transition-colors font-label-caps text-[11px] uppercase tracking-wider w-fit mt-1">
+                      <span class="material-symbols-outlined text-[14px]">close</span>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Send status -->
+                <div id="send-status" class="font-label-caps text-[11px] text-on-surface-variant/60 uppercase tracking-wider"></div>
+
+                <!-- Progress bar -->
+                <div id="progress-wrap" style="display:none;" class="flex flex-col gap-1.5">
+                  <div class="h-1.5 rounded-full bg-surface-container-highest overflow-hidden">
+                    <div id="progress-bar" class="progress-gradient h-full rounded-full" style="width: 0%"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- ──────────────────────
+                 RECEIVE FILE CARD
+            ─────────────────────── -->
+            <div class="glass-panel rounded-2xl p-6 card-hover border border-white/5 min-h-[380px] flex flex-col gap-5">
+              <!-- Card header -->
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background: rgba(5,102,217,0.15); border: 1px solid rgba(173,198,255,0.25);">
+                  <span class="material-symbols-outlined fill-icon text-secondary text-[20px]">key_visualizer</span>
+                </div>
+                <div>
+                  <h2 class="font-headline-lg-mobile text-[16px] font-semibold text-on-surface">Receive File</h2>
+                  <p class="font-label-caps text-[10px] text-on-surface-variant/50 uppercase tracking-wider">Enter the 6-digit code from the sender</p>
+                </div>
+              </div>
+
+              <!-- Receive intro -->
+              <p class="font-body-md text-sm text-on-surface-variant/70">Ask the sender for their 6-digit code or scan their QR.</p>
+
+              <!-- Code input + button -->
+              <div class="flex flex-col gap-3">
+                <input
+                  id="code-input"
+                  type="number"
+                  placeholder="Enter code"
+                  maxlength="6"
+                  class="w-full bg-surface-container border border-outline-variant/30 rounded-xl px-5 py-4 font-code-sm text-[28px] font-bold tracking-[0.3em] text-on-surface focus:outline-none focus:ring-1 focus:ring-secondary/50 placeholder:text-on-surface-variant/20 placeholder:text-[20px] placeholder:tracking-normal transition-all"
+                  style="font-family: 'Geist', monospace;"
+                />
+                <button id="join-btn"
+                  class="w-full py-3 rounded-full font-label-caps text-label-caps tracking-widest uppercase transition-all hover:opacity-90 active:scale-[0.98]"
+                  style="background: linear-gradient(135deg, #0566d9, #3b82f6); color: #e6ecff; box-shadow: 0 4px 20px rgba(59,130,246,0.3);">
+                  ESTABLISH LINK
+                </button>
+              </div>
+
+              <!-- Receive status (hidden until joined) -->
+              <div id="receive-status" style="display:none;" class="flex flex-col gap-4">
+                <!-- File card -->
+                <div class="flex items-center gap-3 p-3 rounded-xl bg-surface-container border border-outline-variant/20">
+                  <span class="material-symbols-outlined fill-icon text-secondary text-[20px]">description</span>
+                  <div class="min-w-0 flex-1">
+                    <div id="recv-filename" class="font-body-md text-sm font-semibold text-on-surface truncate"></div>
+                    <div id="recv-filesize" class="font-label-caps text-[10px] text-on-surface-variant/60"></div>
+                  </div>
+                </div>
+
+                <!-- Receive progress -->
+                <div id="recv-progress-wrap" class="flex flex-col gap-1.5">
+                  <div class="h-1.5 rounded-full bg-surface-container-highest overflow-hidden">
+                    <div id="progress-bar-recv" class="progress-gradient h-full rounded-full" style="width: 0%"></div>
+                  </div>
+                  <span id="recv-speed" class="font-label-caps text-[10px] text-on-surface-variant/60 uppercase">Receiving...</span>
+                </div>
+
+                <!-- Done -->
+                <div id="recv-done" style="display:none; background: rgba(74,225,118,0.08); border: 1px solid rgba(74,225,118,0.2);" class="flex items-center gap-2 px-3 py-2 rounded-xl">
+                  <span class="material-symbols-outlined fill-icon text-tertiary text-[18px]">check_circle</span>
+                  <span class="font-label-caps text-[11px] text-tertiary uppercase tracking-wider">File saved to your device</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Active Channels section -->
+          <div class="mt-8">
+            <div class="flex items-center justify-between mb-4">
+              <span class="font-label-caps text-label-caps text-on-surface-variant/50 uppercase tracking-widest">ACTIVE_CHANNELS</span>
+              <button class="font-label-caps text-[10px] text-primary hover:underline uppercase tracking-wider">View Full History</button>
+            </div>
+
+            <div class="flex flex-col gap-3">
+              <!-- Placeholder channel 1: complete -->
+              <div class="glass-panel rounded-xl px-4 py-3 flex items-center gap-4 border-l-2" style="border-left-color: #4ae176;">
+                <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: rgba(74,225,118,0.1);">
+                  <span class="material-symbols-outlined fill-icon text-tertiary text-[16px]">check_circle</span>
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2 mb-0.5">
+                    <span class="font-label-caps text-[10px] text-tertiary uppercase tracking-wider">TRANSFER COMPLETE</span>
+                    <span class="font-label-caps text-[10px] text-on-surface-variant/30">· 2m ago</span>
+                  </div>
+                  <p class="font-body-md text-sm text-on-surface/80 truncate">project-assets.zip <span class="text-on-surface-variant/50">· 48.3 MB</span></p>
+                </div>
+                <span class="font-label-caps text-[10px] text-on-surface-variant/30">CH:441829</span>
+              </div>
+
+              <!-- Placeholder channel 2: in progress -->
+              <div class="glass-panel rounded-xl px-4 py-3 flex items-center gap-4 border-l-2" style="border-left-color: #6d4aff;">
+                <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: rgba(109,74,255,0.12);">
+                  <span class="material-symbols-outlined text-primary-container text-[16px]">sync</span>
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2 mb-0.5">
+                    <span class="font-label-caps text-[10px] text-primary uppercase tracking-wider">IN PROGRESS</span>
+                    <span class="font-label-caps text-[10px] text-on-surface-variant/30">· Active</span>
+                  </div>
+                  <div class="flex items-center gap-3">
+                    <p class="font-body-md text-sm text-on-surface/80 truncate">backup-2026.tar.gz</p>
+                    <div class="flex-1 h-1 rounded-full bg-surface-container-highest overflow-hidden max-w-[80px]">
+                      <div class="progress-gradient h-full rounded-full" style="width: 64%"></div>
+                    </div>
+                    <span class="font-label-caps text-[10px] text-on-surface-variant/50">64%</span>
+                  </div>
+                </div>
+                <span class="font-label-caps text-[10px] text-on-surface-variant/30">CH:773042</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ════════════════════════
+           CHAT VIEW
+      ═════════════════════════ -->
+      <div id="view-chat" style="display: none; height: 100%; flex-direction: column;">
+        <!-- chat-section id used by JS for flash animation -->
+        <div id="chat-section" class="h-full flex flex-col" style="display: contents;">
+        <div id="chat-section" class="h-full flex flex-col"></div>
+          <!-- Chat header -->
+          <div class="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-outline-variant/20 glass-panel">
+            <div class="flex items-center gap-3">
+              <span class="material-symbols-outlined fill-icon text-primary-container text-[22px]">forum</span>
+              <div>
+                <h2 class="font-headline-lg-mobile text-[17px] font-semibold text-on-surface">Ephemeral Chat</h2>
+                <div class="flex items-center gap-2">
+                  <span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+                  <span id="chat-status" class="font-label-caps text-[10px] text-on-surface-variant/60 uppercase tracking-wider">Securing connection...</span>
+                </div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="burn-btn"
+                class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-error/30 text-error hover:bg-error/10 transition-colors font-label-caps text-[11px] uppercase tracking-wider">
+                <span class="material-symbols-outlined fill-icon text-[16px]">local_fire_department</span>
+                Burn
+              </button>
+            </div>
+          </div>
+
+          <!-- Chat notice -->
+          <div class="flex-shrink-0 mx-4 mt-3 px-4 py-2.5 rounded-xl border border-outline-variant/20 bg-surface-container/50">
+            <p class="font-label-caps text-[10px] text-on-surface-variant/50 uppercase tracking-wider">
+              Chat is available once you connect via a file transfer.
+            </p>
+          </div>
+
+          <!-- Message list -->
+          <div id="chat-messages"
+            class="flex-1 overflow-y-auto scrollbar-hide px-4 py-4 flex flex-col gap-3 min-h-0">
+          </div>
+
+          <!-- Input area -->
+          <div class="flex-shrink-0 px-4 py-4 border-t border-outline-variant/20 glass-panel">
+            <div class="flex items-center gap-2">
+              <input
+                id="chat-input"
+                type="text"
+                placeholder="Type a message..."
+                disabled
+                class="flex-1 bg-surface-container border border-outline-variant/30 rounded-xl px-4 py-3 font-body-md text-sm text-on-surface focus:outline-none focus:ring-1 focus:ring-primary/40 placeholder:text-on-surface-variant/30 disabled:opacity-40 transition-all"
+              />
+              <button id="chat-send-btn" disabled
+                class="w-11 h-11 flex items-center justify-center rounded-xl text-on-primary-container transition-all hover:opacity-90 active:scale-95 disabled:opacity-30"
+                style="background: #6d4aff;">
+                <span class="material-symbols-outlined fill-icon text-[20px]">send</span>
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </main>
+
+    <!-- STATUS BAR (bottom) -->
+    <footer class="flex-shrink-0 h-10 glass-panel border-t border-white/5 flex items-center justify-between px-6">
+      <!-- Left -->
+      <div class="flex items-center gap-4">
+        <div class="flex items-center gap-1.5">
+          <span class="w-1.5 h-1.5 rounded-full bg-tertiary" style="box-shadow: 0 0 5px rgba(74,225,118,0.7);"></span>
+          <span class="font-label-caps text-[10px] text-on-surface-variant/50 uppercase tracking-widest">NETWORK HEALTH: OPTIMAL</span>
+        </div>
+        <div class="h-3 w-px bg-outline-variant/30"></div>
+        <div class="flex items-center gap-1.5">
+          <span class="material-symbols-outlined text-primary-container text-[13px]">shield</span>
+          <span class="font-label-caps text-[10px] text-on-surface-variant/50 uppercase tracking-widest">P2P ENCRYPTION: ACTIVE (AES-256)</span>
+        </div>
+      </div>
+
+      <!-- Right -->
+      <div class="flex items-center gap-2">
+        <!-- Peer avatar stack -->
+        <div class="flex -space-x-2">
+          <div class="w-5 h-5 rounded-full border border-background flex items-center justify-center text-[8px] font-bold" style="background: linear-gradient(135deg, #6d4aff, #4a90d9);">A</div>
+          <div class="w-5 h-5 rounded-full border border-background flex items-center justify-center text-[8px] font-bold" style="background: linear-gradient(135deg, #0566d9, #4ae176);">B</div>
+          <div class="w-5 h-5 rounded-full border border-background flex items-center justify-center text-[8px] font-bold" style="background: linear-gradient(135deg, #4ae176, #6d4aff);">C</div>
+        </div>
+        <span class="font-label-caps text-[10px] text-on-surface-variant/40 uppercase tracking-widest">PEERS CONNECTED</span>
+      </div>
+    </footer>
+
+  </div><!-- end main area -->
+
+  <!-- TOAST -->
+  <div id="toast"
+    class="fixed bottom-16 left-1/2 -translate-x-1/2 px-5 py-2.5 rounded-full font-label-caps text-[11px] uppercase tracking-wider z-[100] pointer-events-none transition-all duration-300"
+    style="background: rgba(30,30,38,0.95); border: 1px solid rgba(255,255,255,0.1); color: #e4e1e7; opacity: 0; transform: translate(-50%, 8px); backdrop-filter: blur(16px);">
+  </div>
+
+  <!-- TAB SWITCHING + TOAST OVERRIDE -->
+  <script>
+    function showView(view) {
+      const tEl = document.getElementById('view-transfer');
+      const cEl = document.getElementById('view-chat');
+      const navT = document.getElementById('nav-transfer');
+      const navM = document.getElementById('nav-messages');
+
+      if (tEl) tEl.style.display = view === 'transfer' ? 'flex' : 'none';
+      if (cEl) cEl.style.display = view === 'chat' ? 'flex' : 'none';
+
+      // Active nav state
+      if (navT) {
+        navT.className = view === 'transfer'
+          ? 'active-nav flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all duration-200 group'
+          : 'flex items-center gap-3 px-4 py-3 rounded-xl text-on-surface-variant/70 hover:text-on-surface hover:bg-white/5 text-left transition-all duration-200 group';
+      }
+      if (navM) {
+        navM.className = view === 'chat'
+          ? 'active-nav flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all duration-200 group'
+          : 'flex items-center gap-3 px-4 py-3 rounded-xl text-on-surface-variant/70 hover:text-on-surface hover:bg-white/5 text-left transition-all duration-200 group';
+      }
+    }
+
+    // Toast override for nicer style (script.js also calls showToast — this replaces the class-based one)
+    // We let script.js define showToast, but override the CSS show class behavior here
+    document.addEventListener('DOMContentLoaded', () => {
+      showView('transfer');
+
+      // Override drop zone drag styling
+      const dz = document.getElementById('drop-zone');
+      if (dz) {
+        dz.addEventListener('dragover', () => dz.classList.add('drop-zone-active'));
+        dz.addEventListener('dragleave', () => dz.classList.remove('drop-zone-active'));
+        dz.addEventListener('drop', () => dz.classList.remove('drop-zone-active'));
+      }
+    });
+
+    // Patch showToast for our inline toast style
+    window._toastTimer = null;
+    window.showToast = function(msg) {
+      const t = document.getElementById('toast');
+      if (!t) return;
+      t.textContent = msg;
+      t.style.opacity = '1';
+      t.style.transform = 'translate(-50%, 0)';
+      clearTimeout(window._toastTimer);
+      window._toastTimer = setTimeout(() => {
+        t.style.opacity = '0';
+        t.style.transform = 'translate(-50%, 8px)';
+      }, 3500);
+    };
+  </script>
 
   <script src="config.js"></script>
   <script src="script.js"></script>
