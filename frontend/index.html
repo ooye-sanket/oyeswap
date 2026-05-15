@@ -172,6 +172,42 @@
     .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
     .status-dot.online { background: #4ae176; box-shadow: 0 0 6px rgba(74,225,118,0.6); }
     .status-dot.offline { background: #938ea2; }
+
+    /* P2P pill states */
+    #p2p-pill.state-connected { border-color: rgba(74,225,118,0.4); }
+    #p2p-pill.state-relay { border-color: rgba(245,158,11,0.4); }
+    #p2p-pill.state-disconnected { border-color: rgba(255,180,171,0.3); }
+
+    @keyframes badge-pop {
+      0% { transform: scale(0.5); opacity: 0; }
+      70% { transform: scale(1.2); }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .badge-pop { animation: badge-pop 0.3s ease forwards; }
+
+    @keyframes channel-in {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .channel-in { animation: channel-in 0.3s ease forwards; }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .pulse-dot { animation: pulse-dot 1.4s ease-in-out infinite; }
+
+    .notif-item {
+      padding: 10px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      cursor: default;
+      transition: background 0.15s;
+    }
+    .notif-item:last-child { border-bottom: none; }
+    .notif-item:hover { background: rgba(255,255,255,0.03); }
   </style>
 </head>
 <body class="bg-background text-on-surface h-screen overflow-hidden flex mesh-gradient">
@@ -186,7 +222,7 @@
       <div class="flex flex-col gap-0.5">
         <span class="font-display-lg text-[22px] font-bold tracking-tight leading-none"
           style="background: linear-gradient(135deg, #c9bfff, #adc6ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">
-          SWAP
+          OYESWAP
         </span>
         <span class="font-label-caps text-label-caps text-on-surface-variant/50 tracking-widest uppercase">
           SECURE HUB
@@ -265,21 +301,63 @@
 
       <!-- Right: controls -->
       <div class="flex items-center gap-3">
-        <!-- P2P speed pill -->
-        <div id="p2p-speed" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container border border-outline-variant/30">
-          <span class="material-symbols-outlined text-tertiary text-[14px]">sensors</span>
-          <span class="font-label-caps text-[10px] text-on-surface-variant/70 uppercase tracking-wider">P2P: Connecting...</span>
+        <!-- P2P live pill -->
+        <div id="p2p-pill" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container border border-outline-variant/30 transition-all duration-500">
+          <span id="p2p-dot" class="w-1.5 h-1.5 rounded-full bg-on-surface-variant/40 transition-all duration-500" style="flex-shrink:0;"></span>
+          <span id="p2p-label" class="font-label-caps text-[10px] text-on-surface-variant/70 uppercase tracking-wider">Connecting</span>
         </div>
 
-        <!-- Notifications -->
-        <button class="w-9 h-9 flex items-center justify-center rounded-xl text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-colors">
-          <span class="material-symbols-outlined text-[20px]">notifications</span>
-        </button>
+        <!-- Notifications with live badge -->
+        <div class="relative">
+          <button id="notif-btn" onclick="toggleNotifPanel()"
+            class="w-9 h-9 flex items-center justify-center rounded-xl text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-colors">
+            <span class="material-symbols-outlined text-[20px]">notifications</span>
+          </button>
+          <span id="notif-badge"
+            class="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center font-label-caps text-[9px] font-bold text-white pointer-events-none"
+            style="background:#6d4aff; display:none; box-shadow: 0 0 6px rgba(109,74,255,0.7);">0</span>
+          <!-- Notification dropdown -->
+          <div id="notif-panel"
+            class="absolute right-0 top-12 w-72 glass-panel rounded-2xl border border-outline-variant/20 z-[200] overflow-hidden"
+            style="display:none;">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-outline-variant/15">
+              <span class="font-label-caps text-[10px] text-on-surface-variant/60 uppercase tracking-widest">Activity</span>
+              <button onclick="clearNotifs()" class="font-label-caps text-[9px] text-primary hover:text-primary/70 uppercase tracking-wider">Clear all</button>
+            </div>
+            <div id="notif-list" class="flex flex-col max-h-64 overflow-y-auto scrollbar-hide py-2">
+              <div class="px-4 py-6 text-center">
+                <span class="font-label-caps text-[10px] text-on-surface-variant/30 uppercase tracking-wider">No activity yet</span>
+              </div>
+            </div>
+          </div>
+        </div>
 
-        <!-- Search -->
-        <button class="w-9 h-9 flex items-center justify-center rounded-xl text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-colors">
-          <span class="material-symbols-outlined text-[20px]">search</span>
-        </button>
+        <!-- Search — channel history filter -->
+        <div class="relative">
+          <button id="search-btn" onclick="toggleSearch()"
+            class="w-9 h-9 flex items-center justify-center rounded-xl text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-colors">
+            <span class="material-symbols-outlined text-[20px]">search</span>
+          </button>
+          <!-- Search dropdown -->
+          <div id="search-panel"
+            class="absolute right-0 top-12 w-72 glass-panel rounded-2xl border border-outline-variant/20 z-[200] overflow-hidden"
+            style="display:none;">
+            <div class="px-3 py-2.5 border-b border-outline-variant/15 flex items-center gap-2">
+              <span class="material-symbols-outlined text-on-surface-variant/40 text-[16px]">search</span>
+              <input id="search-input" type="text" placeholder="Search transfers..."
+                class="flex-1 bg-transparent font-body-md text-sm text-on-surface focus:outline-none placeholder:text-on-surface-variant/30"
+                oninput="filterChannels(this.value)" />
+              <button onclick="toggleSearch()" class="text-on-surface-variant/40 hover:text-on-surface transition-colors">
+                <span class="material-symbols-outlined text-[16px]">close</span>
+              </button>
+            </div>
+            <div id="search-results" class="max-h-52 overflow-y-auto scrollbar-hide py-2">
+              <div class="px-4 py-4 text-center">
+                <span class="font-label-caps text-[10px] text-on-surface-variant/30 uppercase tracking-wider">Type to filter transfers</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </header>
 
@@ -463,45 +541,10 @@
           <div class="mt-8">
             <div class="flex items-center justify-between mb-4">
               <span class="font-label-caps text-label-caps text-on-surface-variant/50 uppercase tracking-widest">ACTIVE_CHANNELS</span>
-              <button class="font-label-caps text-[10px] text-primary hover:underline uppercase tracking-wider">View Full History</button>
+              <button onclick="showAllChannels()" class="font-label-caps text-[10px] text-primary hover:underline uppercase tracking-wider">View Full History</button>
             </div>
-
-            <div class="flex flex-col gap-3">
-              <!-- Placeholder channel 1: complete -->
-              <div class="glass-panel rounded-xl px-4 py-3 flex items-center gap-4 border-l-2" style="border-left-color: #4ae176;">
-                <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: rgba(74,225,118,0.1);">
-                  <span class="material-symbols-outlined fill-icon text-tertiary text-[16px]">check_circle</span>
-                </div>
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2 mb-0.5">
-                    <span class="font-label-caps text-[10px] text-tertiary uppercase tracking-wider">TRANSFER COMPLETE</span>
-                    <span class="font-label-caps text-[10px] text-on-surface-variant/30">· 2m ago</span>
-                  </div>
-                  <p class="font-body-md text-sm text-on-surface/80 truncate">project-assets.zip <span class="text-on-surface-variant/50">· 48.3 MB</span></p>
-                </div>
-                <span class="font-label-caps text-[10px] text-on-surface-variant/30">CH:441829</span>
-              </div>
-
-              <!-- Placeholder channel 2: in progress -->
-              <div class="glass-panel rounded-xl px-4 py-3 flex items-center gap-4 border-l-2" style="border-left-color: #6d4aff;">
-                <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: rgba(109,74,255,0.12);">
-                  <span class="material-symbols-outlined text-primary-container text-[16px]">sync</span>
-                </div>
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2 mb-0.5">
-                    <span class="font-label-caps text-[10px] text-primary uppercase tracking-wider">IN PROGRESS</span>
-                    <span class="font-label-caps text-[10px] text-on-surface-variant/30">· Active</span>
-                  </div>
-                  <div class="flex items-center gap-3">
-                    <p class="font-body-md text-sm text-on-surface/80 truncate">backup-2026.tar.gz</p>
-                    <div class="flex-1 h-1 rounded-full bg-surface-container-highest overflow-hidden max-w-[80px]">
-                      <div class="progress-gradient h-full rounded-full" style="width: 64%"></div>
-                    </div>
-                    <span class="font-label-caps text-[10px] text-on-surface-variant/50">64%</span>
-                  </div>
-                </div>
-                <span class="font-label-caps text-[10px] text-on-surface-variant/30">CH:773042</span>
-              </div>
+            <div id="channels-list" class="flex flex-col gap-3">
+              <!-- dynamically rendered by JS -->
             </div>
           </div>
         </div>
@@ -575,25 +618,21 @@
       <!-- Left -->
       <div class="flex items-center gap-4">
         <div class="flex items-center gap-1.5">
-          <span class="w-1.5 h-1.5 rounded-full bg-tertiary" style="box-shadow: 0 0 5px rgba(74,225,118,0.7);"></span>
-          <span class="font-label-caps text-[10px] text-on-surface-variant/50 uppercase tracking-widest">NETWORK HEALTH: OPTIMAL</span>
+          <span id="network-dot" class="w-1.5 h-1.5 rounded-full transition-all duration-700" style="background:#4ae176; box-shadow: 0 0 5px rgba(74,225,118,0.7);"></span>
+          <span id="network-label" class="font-label-caps text-[10px] text-on-surface-variant/50 uppercase tracking-widest">Connection Good</span>
         </div>
         <div class="h-3 w-px bg-outline-variant/30"></div>
         <div class="flex items-center gap-1.5">
-          <span class="material-symbols-outlined text-primary-container text-[13px]">shield</span>
-          <span class="font-label-caps text-[10px] text-on-surface-variant/50 uppercase tracking-widest">P2P ENCRYPTION: ACTIVE (AES-256)</span>
+          <span class="material-symbols-outlined text-primary-container text-[13px]">lock</span>
+          <span class="font-label-caps text-[10px] text-on-surface-variant/50 uppercase tracking-widest">Your files are end-to-end encrypted</span>
         </div>
       </div>
 
       <!-- Right -->
       <div class="flex items-center gap-2">
         <!-- Peer avatar stack -->
-        <div class="flex -space-x-2">
-          <div class="w-5 h-5 rounded-full border border-background flex items-center justify-center text-[8px] font-bold" style="background: linear-gradient(135deg, #6d4aff, #4a90d9);">A</div>
-          <div class="w-5 h-5 rounded-full border border-background flex items-center justify-center text-[8px] font-bold" style="background: linear-gradient(135deg, #0566d9, #4ae176);">B</div>
-          <div class="w-5 h-5 rounded-full border border-background flex items-center justify-center text-[8px] font-bold" style="background: linear-gradient(135deg, #4ae176, #6d4aff);">C</div>
-        </div>
-        <span class="font-label-caps text-[10px] text-on-surface-variant/40 uppercase tracking-widest">PEERS CONNECTED</span>
+        <div id="peer-avatars" class="flex -space-x-2"></div>
+        <span id="peer-count-label" class="font-label-caps text-[10px] text-on-surface-variant/40 uppercase tracking-widest">No peers yet</span>
       </div>
     </footer>
 
@@ -605,7 +644,414 @@
     style="background: rgba(30,30,38,0.95); border: 1px solid rgba(255,255,255,0.1); color: #e4e1e7; opacity: 0; transform: translate(-50%, 8px); backdrop-filter: blur(16px);">
   </div>
 
-  <!-- TAB SWITCHING + TOAST OVERRIDE -->
+  <!-- OYESWAP DYNAMIC UI ENGINE -->
+  <script>
+  // ─────────────────────────────────────────
+  // CHANNEL HISTORY — live JS-rendered list
+  // ─────────────────────────────────────────
+  const channelHistory = [];
+
+  function timeAgo(ts) {
+    const s = Math.floor((Date.now() - ts) / 1000);
+    if (s < 60) return s + 's ago';
+    if (s < 3600) return Math.floor(s / 60) + 'm ago';
+    return Math.floor(s / 3600) + 'h ago';
+  }
+
+  function renderChannels(list) {
+    const el = document.getElementById('channels-list');
+    if (!el) return;
+    if (list.length === 0) {
+      el.innerHTML = `<div class="px-4 py-8 text-center">
+        <span class="font-label-caps text-[10px] text-on-surface-variant/25 uppercase tracking-widest">No transfers yet</span>
+      </div>`;
+      return;
+    }
+    el.innerHTML = '';
+    list.slice().reverse().forEach((ch, i) => {
+      const div = document.createElement('div');
+      div.className = 'glass-panel rounded-xl px-4 py-3 flex items-center gap-4 border-l-2 channel-in';
+      div.style.animationDelay = (i * 40) + 'ms';
+
+      const isActive = ch.status === 'progress';
+      const isComplete = ch.status === 'complete';
+      const borderColor = isComplete ? '#4ae176' : isActive ? '#6d4aff' : '#938ea2';
+      div.style.borderLeftColor = borderColor;
+
+      const iconColor = isComplete ? 'text-tertiary' : isActive ? 'text-primary-container' : 'text-on-surface-variant/40';
+      const iconBg = isComplete ? 'rgba(74,225,118,0.1)' : isActive ? 'rgba(109,74,255,0.12)' : 'rgba(147,142,162,0.1)';
+      const iconName = isComplete ? 'check_circle' : isActive ? 'sync' : 'cancel';
+      const iconFill = isComplete ? 'fill-icon' : '';
+      const iconSpin = isActive ? 'style="animation: spin-slow 2s linear infinite;"' : '';
+
+      const statusLabel = isComplete
+        ? `<span class="font-label-caps text-[10px] text-tertiary uppercase tracking-wider">Done</span><span class="font-label-caps text-[10px] text-on-surface-variant/30">· ${timeAgo(ch.ts)}</span>`
+        : isActive
+        ? `<span class="font-label-caps text-[10px] text-primary uppercase tracking-wider">Sending</span><span class="font-label-caps text-[10px] text-on-surface-variant/30">· Active</span>`
+        : `<span class="font-label-caps text-[10px] text-on-surface-variant/40 uppercase tracking-wider">Cancelled</span>`;
+
+      const bodyContent = isActive
+        ? `<div class="flex items-center gap-3">
+            <p class="font-body-md text-sm text-on-surface/80 truncate">${escSafe(ch.name)}</p>
+            <div class="flex-1 h-1 rounded-full bg-surface-container-highest overflow-hidden max-w-[80px]">
+              <div class="progress-gradient h-full rounded-full" id="ch-bar-${ch.id}" style="width:${ch.pct || 0}%"></div>
+            </div>
+            <span class="font-label-caps text-[10px] text-on-surface-variant/50" id="ch-pct-${ch.id}">${ch.pct || 0}%</span>
+          </div>`
+        : `<p class="font-body-md text-sm text-on-surface/80 truncate">${escSafe(ch.name)} <span class="text-on-surface-variant/50">· ${formatSizeUI(ch.size)}</span></p>`;
+
+      div.innerHTML = `
+        <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style="background:${iconBg};">
+          <span class="material-symbols-outlined ${iconFill} ${iconColor} text-[16px]" ${iconSpin}>${iconName}</span>
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 mb-0.5">${statusLabel}</div>
+          ${bodyContent}
+        </div>
+        <span class="font-label-caps text-[10px] text-on-surface-variant/30 flex-shrink-0">CH:${ch.id}</span>
+      `;
+      el.appendChild(div);
+    });
+  }
+
+  function addChannel(entry) {
+    channelHistory.push(entry);
+    renderChannels(channelHistory);
+    pushNotif(entry.status === 'progress'
+      ? 'Transfer started: ' + entry.name
+      : 'Transfer done: ' + entry.name,
+      entry.status === 'complete' ? 'complete' : 'info');
+    updatePeerCount();
+  }
+
+  function updateChannelProgress(id, pct, done) {
+    const ch = channelHistory.find(c => c.id === id);
+    if (!ch) return;
+    if (done) {
+      ch.status = 'complete';
+      ch.ts = Date.now();
+      renderChannels(channelHistory);
+    } else {
+      ch.pct = pct;
+      const bar = document.getElementById('ch-bar-' + id);
+      const pctEl = document.getElementById('ch-pct-' + id);
+      if (bar) bar.style.width = pct + '%';
+      if (pctEl) pctEl.textContent = pct + '%';
+    }
+  }
+
+  function escSafe(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function formatSizeUI(b) {
+    if (!b) return '';
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+    if (b < 1073741824) return (b/1048576).toFixed(1) + ' MB';
+    return (b/1073741824).toFixed(1) + ' GB';
+  }
+
+  function showAllChannels() {
+    renderChannels(channelHistory);
+    showToast('Showing all ' + channelHistory.length + ' transfers');
+  }
+
+  // channel filter for search
+  function filterChannels(q) {
+    const trimmed = q.trim().toLowerCase();
+    const res = document.getElementById('search-results');
+    if (!res) return;
+    if (!trimmed) {
+      res.innerHTML = `<div class="px-4 py-4 text-center"><span class="font-label-caps text-[10px] text-on-surface-variant/30 uppercase tracking-wider">Type to filter transfers</span></div>`;
+      return;
+    }
+    const matches = channelHistory.filter(c => c.name.toLowerCase().includes(trimmed));
+    if (matches.length === 0) {
+      res.innerHTML = `<div class="px-4 py-4 text-center"><span class="font-label-caps text-[10px] text-on-surface-variant/30 uppercase tracking-wider">No matches</span></div>`;
+      return;
+    }
+    res.innerHTML = '';
+    matches.slice().reverse().forEach(ch => {
+      const row = document.createElement('div');
+      row.className = 'notif-item';
+      const dot = ch.status === 'complete' ? '#4ae176' : ch.status === 'progress' ? '#6d4aff' : '#938ea2';
+      row.innerHTML = `<div class="flex items-center gap-2">
+        <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style="background:${dot};"></span>
+        <span class="font-body-md text-[13px] text-on-surface truncate">${escSafe(ch.name)}</span>
+      </div>
+      <span class="font-label-caps text-[9px] text-on-surface-variant/40 uppercase tracking-wider">${formatSizeUI(ch.size)} · CH:${ch.id}</span>`;
+      res.appendChild(row);
+    });
+  }
+
+  // ─────────────────────────────────────────
+  // P2P PILL — wired to real WS + ICE state
+  // ─────────────────────────────────────────
+  function updateP2PPill(state) {
+    // state: 'connecting' | 'connected' | 'relay' | 'offline'
+    const pill = document.getElementById('p2p-pill');
+    const dot = document.getElementById('p2p-dot');
+    const label = document.getElementById('p2p-label');
+    if (!pill || !dot || !label) return;
+
+    pill.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container border border-outline-variant/30 transition-all duration-500';
+
+    if (state === 'connected') {
+      dot.style.background = '#4ae176';
+      dot.style.boxShadow = '0 0 6px rgba(74,225,118,0.7)';
+      dot.className = 'w-1.5 h-1.5 rounded-full transition-all duration-500';
+      label.textContent = 'Direct';
+      label.style.color = '#4ae176';
+      pill.classList.add('state-connected');
+    } else if (state === 'relay') {
+      dot.style.background = '#f59e0b';
+      dot.style.boxShadow = '0 0 6px rgba(245,158,11,0.7)';
+      dot.className = 'w-1.5 h-1.5 rounded-full transition-all duration-500';
+      label.textContent = 'Relay';
+      label.style.color = '#f59e0b';
+      pill.classList.add('state-relay');
+    } else if (state === 'offline') {
+      dot.style.background = '#ffb4ab';
+      dot.style.boxShadow = 'none';
+      dot.className = 'w-1.5 h-1.5 rounded-full transition-all duration-500';
+      label.textContent = 'Offline';
+      label.style.color = 'rgba(255,180,171,0.7)';
+      pill.classList.add('state-disconnected');
+    } else {
+      // connecting
+      dot.style.background = 'rgba(201,191,255,0.5)';
+      dot.style.boxShadow = 'none';
+      dot.className = 'w-1.5 h-1.5 rounded-full pulse-dot transition-all duration-500';
+      label.textContent = 'Connecting';
+      label.style.color = 'rgba(201,196,217,0.5)';
+    }
+  }
+
+  // ─────────────────────────────────────────
+  // NETWORK HEALTH — footer
+  // ─────────────────────────────────────────
+  function updateNetworkHealth(online) {
+    const dot = document.getElementById('network-dot');
+    const lbl = document.getElementById('network-label');
+    if (!dot || !lbl) return;
+    if (online) {
+      dot.style.background = '#4ae176';
+      dot.style.boxShadow = '0 0 5px rgba(74,225,118,0.7)';
+      lbl.textContent = 'Connection Good';
+    } else {
+      dot.style.background = '#ffb4ab';
+      dot.style.boxShadow = '0 0 5px rgba(255,180,171,0.5)';
+      lbl.textContent = 'Reconnecting...';
+    }
+  }
+
+  // Hook into WS updateStatus after script.js loads
+  document.addEventListener('DOMContentLoaded', () => {
+    // Wrap updateStatus after script.js defines it
+    setTimeout(() => {
+      const origUpdate = window.updateStatus;
+      if (origUpdate) {
+        window.updateStatus = function(online) {
+          origUpdate(online);
+          updateNetworkHealth(online);
+          updateP2PPill(online ? 'connected' : 'offline');
+        };
+      }
+    }, 100);
+    renderChannels(channelHistory);
+    updateP2PPill('connecting');
+  });
+
+  // ─────────────────────────────────────────
+  // PEER COUNT — footer avatar stack
+  // ─────────────────────────────────────────
+  let peerSet = new Set();
+  const AVATAR_GRADIENTS = [
+    'linear-gradient(135deg,#6d4aff,#4a90d9)',
+    'linear-gradient(135deg,#0566d9,#4ae176)',
+    'linear-gradient(135deg,#4ae176,#6d4aff)',
+    'linear-gradient(135deg,#f59e0b,#6d4aff)',
+    'linear-gradient(135deg,#ec4899,#6d4aff)',
+  ];
+
+  function updatePeerCount() {
+    const stack = document.getElementById('peer-avatars');
+    const lbl = document.getElementById('peer-count-label');
+    if (!stack || !lbl) return;
+    const peers = [...peerSet];
+    stack.innerHTML = '';
+    peers.slice(0, 4).forEach((name, i) => {
+      const av = document.createElement('div');
+      av.className = 'w-5 h-5 rounded-full border border-background flex items-center justify-center text-[8px] font-bold text-white';
+      av.style.background = AVATAR_GRADIENTS[i % AVATAR_GRADIENTS.length];
+      av.title = name;
+      av.textContent = name.charAt(0).toUpperCase();
+      stack.appendChild(av);
+    });
+    lbl.textContent = peers.length === 0
+      ? 'No peers yet'
+      : peers.length === 1
+      ? '1 Peer Connected'
+      : peers.length + ' Peers Connected';
+  }
+
+  function addPeer(name) { peerSet.add(name); updatePeerCount(); }
+  function removePeer(name) { peerSet.delete(name); updatePeerCount(); }
+
+  // ─────────────────────────────────────────
+  // NOTIFICATIONS
+  // ─────────────────────────────────────────
+  const notifLog = [];
+  let notifUnread = 0;
+
+  function pushNotif(text, type) {
+    // type: 'complete' | 'info' | 'error'
+    notifLog.unshift({ text, type, ts: Date.now() });
+    notifUnread++;
+    const badge = document.getElementById('notif-badge');
+    if (badge) {
+      badge.textContent = notifUnread > 9 ? '9+' : notifUnread;
+      badge.style.display = 'flex';
+      badge.className = 'absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center font-label-caps text-[9px] font-bold text-white pointer-events-none badge-pop';
+    }
+    renderNotifs();
+  }
+
+  function renderNotifs() {
+    const list = document.getElementById('notif-list');
+    if (!list) return;
+    if (notifLog.length === 0) {
+      list.innerHTML = `<div class="px-4 py-6 text-center"><span class="font-label-caps text-[10px] text-on-surface-variant/30 uppercase tracking-wider">No activity yet</span></div>`;
+      return;
+    }
+    list.innerHTML = '';
+    notifLog.slice(0, 20).forEach(n => {
+      const dot = n.type === 'complete' ? '#4ae176' : n.type === 'error' ? '#ffb4ab' : '#6d4aff';
+      const div = document.createElement('div');
+      div.className = 'notif-item';
+      div.innerHTML = `<div class="flex items-center gap-2">
+        <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style="background:${dot};"></span>
+        <span class="font-body-md text-[13px] text-on-surface/90">${escSafe(n.text)}</span>
+      </div>
+      <span class="font-label-caps text-[9px] text-on-surface-variant/35 uppercase">${timeAgo(n.ts)}</span>`;
+      list.appendChild(div);
+    });
+  }
+
+  function clearNotifs() {
+    notifLog.length = 0;
+    notifUnread = 0;
+    const badge = document.getElementById('notif-badge');
+    if (badge) badge.style.display = 'none';
+    renderNotifs();
+  }
+
+  let notifOpen = false;
+  function toggleNotifPanel() {
+    const panel = document.getElementById('notif-panel');
+    const searchPanel = document.getElementById('search-panel');
+    if (!panel) return;
+    notifOpen = !notifOpen;
+    panel.style.display = notifOpen ? 'block' : 'none';
+    if (notifOpen) {
+      // close search
+      if (searchPanel) searchPanel.style.display = 'none';
+      searchOpen = false;
+      // clear unread
+      notifUnread = 0;
+      const badge = document.getElementById('notif-badge');
+      if (badge) badge.style.display = 'none';
+      renderNotifs();
+    }
+  }
+
+  let searchOpen = false;
+  function toggleSearch() {
+    const panel = document.getElementById('search-panel');
+    const notifPanel = document.getElementById('notif-panel');
+    if (!panel) return;
+    searchOpen = !searchOpen;
+    panel.style.display = searchOpen ? 'block' : 'none';
+    if (searchOpen) {
+      if (notifPanel) notifPanel.style.display = 'none';
+      notifOpen = false;
+      const inp = document.getElementById('search-input');
+      if (inp) { inp.value = ''; inp.focus(); filterChannels(''); }
+    }
+  }
+
+  // Close panels on outside click
+  document.addEventListener('click', (e) => {
+    const notifBtn = document.getElementById('notif-btn');
+    const notifPanel = document.getElementById('notif-panel');
+    const searchBtn = document.getElementById('search-btn');
+    const searchPanel = document.getElementById('search-panel');
+
+    if (notifPanel && notifOpen && !notifPanel.contains(e.target) && e.target !== notifBtn) {
+      notifPanel.style.display = 'none';
+      notifOpen = false;
+    }
+    if (searchPanel && searchOpen && !searchPanel.contains(e.target) && e.target !== searchBtn) {
+      searchPanel.style.display = 'none';
+      searchOpen = false;
+    }
+  });
+
+  // ─────────────────────────────────────────
+  // HOOK INTO script.js transfer events
+  // Patch after script.js loads
+  // ─────────────────────────────────────────
+  document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(() => {
+      // Patch handleFileSelect to register channel
+      const origHandleFile = window.handleFileSelect;
+      if (origHandleFile) {
+        window.handleFileSelect = function(file) {
+          origHandleFile(file);
+          if (file) {
+            const id = Math.floor(100000 + Math.random() * 900000);
+            window._activeChannelId = id;
+            addChannel({ id, name: file.name, size: file.size, status: 'progress', pct: 0, ts: Date.now() });
+            addPeer('Peer');
+          }
+        };
+      }
+
+      // Patch setProgress to keep channel bar in sync
+      const origSetProg = window.setProgress;
+      if (origSetProg) {
+        window.setProgress = function(pct, show) {
+          origSetProg(pct, show);
+          if (window._activeChannelId) {
+            if (!show && pct === 0) return;
+            const done = pct >= 100 && show === false;
+            updateChannelProgress(window._activeChannelId, Math.round(pct), done);
+            if (done) {
+              pushNotif('Transfer complete', 'complete');
+              window._activeChannelId = null;
+            }
+          }
+        };
+      }
+
+      // Hook showReceiveInfo (receiver side)
+      const origRecv = window.showReceiveInfo;
+      if (origRecv) {
+        window.showReceiveInfo = function(fileName, fileSize, senderConnectionId) {
+          origRecv(fileName, fileSize, senderConnectionId);
+          const id = Math.floor(100000 + Math.random() * 900000);
+          window._recvChannelId = id;
+          addChannel({ id, name: fileName, size: fileSize, status: 'progress', pct: 0, ts: Date.now() });
+          addPeer('Sender');
+        };
+      }
+    }, 200);
+  });
+  </script>
+
   <script>
     function showView(view) {
       const tEl = document.getElementById('view-transfer');
@@ -629,12 +1075,9 @@
       }
     }
 
-    // Toast override for nicer style (script.js also calls showToast — this replaces the class-based one)
-    // We let script.js define showToast, but override the CSS show class behavior here
     document.addEventListener('DOMContentLoaded', () => {
       showView('transfer');
 
-      // Override drop zone drag styling
       const dz = document.getElementById('drop-zone');
       if (dz) {
         dz.addEventListener('dragover', () => dz.classList.add('drop-zone-active'));
@@ -643,7 +1086,6 @@
       }
     });
 
-    // Patch showToast for our inline toast style
     window._toastTimer = null;
     window.showToast = function(msg) {
       const t = document.getElementById('toast');
